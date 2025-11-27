@@ -28,6 +28,8 @@ export class Renderer {
     public context!: GPUCanvasContext;
     public presentationFormat!: GPUTextureFormat;
 
+    private pixelRatio: number = 1;
+
     private isInitialized = false;
     private initializationPromise: Promise<void>;
 
@@ -76,15 +78,27 @@ export class Renderer {
         this.isInitialized = true;
     }
 
-    public resize(width: number, height: number) {
+    public getPixelRatio(): number {
+        return this.pixelRatio;
+    }
+
+    public setPixelRatio(value: number) {
+        this.pixelRatio = value;
+    }
+
+    public resize() {
         if (!this.canvas) return;
-        this.canvas.width = width;
-        this.canvas.height = height;
+
+        const width = this.canvas.clientWidth;
+        const height = this.canvas.clientHeight;
+
+        this.canvas.width = width * this.pixelRatio;
+        this.canvas.height = height * this.pixelRatio;
 
         if (this.device) {
             if (this.depthTexture) this.depthTexture.destroy();
             this.depthTexture = this.device.createTexture({
-                size: [width, height],
+                size: [this.canvas.width, this.canvas.height],
                 format: "depth24plus",
                 usage: GPUTextureUsage.RENDER_ATTACHMENT,
             });

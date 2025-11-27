@@ -11,7 +11,8 @@ import { Vector3 } from "../src/math";
 const canvas = document.getElementById("gfx-canvas") as HTMLCanvasElement;
 
 const renderer = new Renderer(canvas);
-renderer.resize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.resize();
 
 const scene = new Scene();
 
@@ -46,7 +47,7 @@ camera.position.set(0, 3, 10);
 camera.lookAt(new Vector3(0, 0, 0));
 
 window.addEventListener("resize", () => {
-    renderer.resize(window.innerWidth, window.innerHeight);
+    renderer.resize();
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
