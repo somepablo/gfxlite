@@ -29,6 +29,7 @@ export class Renderer {
     public presentationFormat!: GPUTextureFormat;
 
     private pixelRatio: number = 1;
+    public debug: boolean = false;
 
     private isInitialized = false;
     private initializationPromise: Promise<void>;
@@ -43,6 +44,17 @@ export class Renderer {
     private depthTextureView!: GPUTextureView;
     private geometryCache = new Map<number, GeometryData>();
     private materialDataCache = new Map<number, MaterialData>();
+
+    public info = {
+        render: {
+            calls: 0,
+            triangles: 0,
+        },
+        memory: {
+            geometries: 0,
+            programs: 0,
+        },
+    };
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -188,6 +200,13 @@ export class Renderer {
             await this.initializationPromise;
         }
 
+        if (this.debug) {
+            this.info.render.calls = 0;
+            this.info.render.triangles = 0;
+            this.info.memory.geometries = this.geometryCache.size;
+            this.info.memory.programs = this.programCache.size;
+        }
+
         scene.updateWorldMatrix();
         camera.updateWorldMatrix();
         
@@ -221,6 +240,10 @@ export class Renderer {
 
         const passEncoder =
             commandEncoder.beginRenderPass(renderPassDescriptor);
+
+        if (this.debug) {
+            passEncoder.pushDebugGroup(`Render Scene`);
+        }
 
         const viewProjectionMatrix = new Matrix4().multiplyMatrices(
             camera.projectionMatrix,
@@ -281,9 +304,16 @@ export class Renderer {
             if (geometryData.indexBuffer) {
                 passEncoder.setIndexBuffer(geometryData.indexBuffer, "uint32");
                 passEncoder.drawIndexed(mesh.geometry.indexCount);
+                if (this.debug) this.info.render.triangles += mesh.geometry.indexCount / 3;
             } else {
                 passEncoder.draw(mesh.geometry.indexCount);
+                if (this.debug) this.info.render.triangles += mesh.geometry.indexCount / 3;
             }
+            if (this.debug) this.info.render.calls++;
+        }
+
+        if (this.debug) {
+            passEncoder.popDebugGroup();
         }
 
         passEncoder.end();

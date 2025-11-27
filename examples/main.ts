@@ -1,3 +1,5 @@
+import Stats from "stats.js";
+import GUI from "lil-gui";
 import {
     BasicMaterial,
     BoxGeometry,
@@ -13,6 +15,7 @@ const canvas = document.getElementById("gfx-canvas") as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.resize();
+renderer.debug = true;
 
 const scene = new Scene();
 
@@ -46,6 +49,20 @@ const camera = new PerspectiveCamera(
 camera.position.set(0, 3, 10);
 camera.lookAt(new Vector3(0, 0, 0));
 
+// --- Instrumentation ---
+const stats = new Stats();
+const panelCalls = stats.addPanel(new Stats.Panel("Calls", "#ff8", "#221"));
+const panelTris = stats.addPanel(new Stats.Panel("Tris", "#f8f", "#212"));
+stats.showPanel(0);
+document.body.appendChild(stats.dom);
+
+const gui = new GUI();
+const cameraFolder = gui.addFolder("Camera");
+cameraFolder.add(camera.position, "x", -20, 20);
+cameraFolder.add(camera.position, "y", -20, 20);
+cameraFolder.add(camera.position, "z", -20, 20);
+cameraFolder.open();
+
 window.addEventListener("resize", () => {
     renderer.resize();
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -53,7 +70,14 @@ window.addEventListener("resize", () => {
 });
 
 function frame() {
+    stats.begin();
     renderer.render(scene, camera);
+    
+    panelCalls.update(renderer.info.render.calls, 100); // Max value 100? Adjust as needed
+    panelTris.update(renderer.info.render.triangles, 1000); // Max value 1000? Adjust as needed
+    
+    stats.end();
+    
     requestAnimationFrame(frame);
 }
 
