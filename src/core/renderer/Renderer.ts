@@ -1,10 +1,10 @@
-import { Matrix4 } from "../math";
-import type { Camera } from "./Camera";
-import type { Geometry } from "./Geometry";
-import type { Material } from "./Material";
-import { Mesh } from "./Mesh";
+import { Matrix4 } from "../../math";
+import type { Camera } from "../camera/Camera";
+import type { Geometry } from "../geometry/Geometry";
+import type { Material } from "../material/Material";
+import { Mesh } from "../object/Mesh";
 import { Program } from "./Program";
-import type { Scene } from "./Scene";
+import type { Scene } from "../scene/Scene";
 
 interface GeometryData {
     vertexBuffer: GPUBuffer;

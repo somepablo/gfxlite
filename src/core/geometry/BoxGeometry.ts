@@ -1,4 +1,4 @@
-import { Geometry } from "../core/Geometry";
+import { Geometry } from "../geometry/Geometry";
 
 export class BoxGeometry extends Geometry {
     constructor({ width = 1, height = 1, depth = 1 } = {}) {

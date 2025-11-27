@@ -1,4 +1,4 @@
-import { Geometry } from "../core/Geometry";
+import { Geometry } from "../geometry/Geometry";
 
 export class ConeGeometry extends Geometry {
     constructor({

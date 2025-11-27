@@ -1,5 +1,5 @@
-import { Matrix4 } from "../math";
-import { Object3D } from "./Object3D";
+import { Matrix4 } from "../../math";
+import { Object3D } from "../object/Object3D";
 
 export class Camera extends Object3D {
     public projectionMatrix: Matrix4 = new Matrix4();

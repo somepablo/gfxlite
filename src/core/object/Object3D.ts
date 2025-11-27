@@ -1,4 +1,4 @@
-import { Matrix4, Quaternion, Vector3 } from "../math";
+import { Matrix4, Quaternion, Vector3 } from "../../math";
 
 let object3DID = 0;
 

@@ -1,4 +1,4 @@
-import { Geometry } from "../core/Geometry";
+import { Geometry } from "../geometry/Geometry";
 
 export class CircleGeometry extends Geometry {
     constructor({ radius = 1, segments = 32 } = {}) {
