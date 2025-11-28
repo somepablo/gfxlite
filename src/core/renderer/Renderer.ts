@@ -11,13 +11,13 @@ interface GeometryData {
     indexBuffer: GPUBuffer | null;
 }
 
-interface MaterialData {
-    program: Program;
+interface MeshData {
     uniformBuffer: GPUBuffer;
     bindGroup: GPUBindGroup;
 }
 
-interface MeshData {
+interface MaterialData {
+    program: Program;
     uniformBuffer: GPUBuffer;
     bindGroup: GPUBindGroup;
 }
@@ -45,7 +45,7 @@ export class Renderer {
     private geometryCache = new Map<number, GeometryData>();
     private materialDataCache = new Map<number, MaterialData>();
 
-    public info = {
+    public debugInfo = {
         render: {
             calls: 0,
             triangles: 0,
@@ -201,10 +201,10 @@ export class Renderer {
         }
 
         if (this.debug) {
-            this.info.render.calls = 0;
-            this.info.render.triangles = 0;
-            this.info.memory.geometries = this.geometryCache.size;
-            this.info.memory.programs = this.programCache.size;
+            this.debugInfo.render.calls = 0;
+            this.debugInfo.render.triangles = 0;
+            this.debugInfo.memory.geometries = this.geometryCache.size;
+            this.debugInfo.memory.programs = this.programCache.size;
         }
 
         scene.updateWorldMatrix();
@@ -275,13 +275,14 @@ export class Renderer {
                 this.meshDataCache.set(mesh, meshData);
             }
 
-            // OPTIONAL: Update material uniforms if they have changed
-            // For now, we'll re-upload on every frame. This can be optimized later.
-            this.device.queue.writeBuffer(
-                materialData.uniformBuffer,
-                0,
-                mesh.material.getUniformBufferData() as any,
-            );
+            if (mesh.material.needsUpdate) {
+                this.device.queue.writeBuffer(
+                    materialData.uniformBuffer,
+                    0,
+                    mesh.material.getUniformBufferData() as any,
+                );
+                mesh.material.needsUpdate = false;
+            }
 
             passEncoder.setPipeline(program.pipeline);
 
@@ -304,12 +305,12 @@ export class Renderer {
             if (geometryData.indexBuffer) {
                 passEncoder.setIndexBuffer(geometryData.indexBuffer, "uint32");
                 passEncoder.drawIndexed(mesh.geometry.indexCount);
-                if (this.debug) this.info.render.triangles += mesh.geometry.indexCount / 3;
+                if (this.debug) this.debugInfo.render.triangles += mesh.geometry.indexCount / 3;
             } else {
                 passEncoder.draw(mesh.geometry.indexCount);
-                if (this.debug) this.info.render.triangles += mesh.geometry.indexCount / 3;
+                if (this.debug) this.debugInfo.render.triangles += mesh.geometry.indexCount / 3;
             }
-            if (this.debug) this.info.render.calls++;
+            if (this.debug) this.debugInfo.render.calls++;
         }
 
         if (this.debug) {

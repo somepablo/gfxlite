@@ -17,7 +17,7 @@ export class ConeGeometry extends Geometry {
         for (let y = 0; y <= heightSegments; y++) {
             const v = y / heightSegments;
             const currentHeight = v * height - halfHeight;
-            const currentRadius = v * radius; // Linearly interpolate from 0 (tip) to radius (base)
+            const currentRadius = v * radius;
 
             for (let x = 0; x <= radialSegments; x++) {
                 const u = x / radialSegments;
