@@ -8,9 +8,10 @@ export class TorusGeometry extends Geometry {
         tubularSegments = 32,
     } = {}) {
         const vertices: number[] = [];
+        const normals: number[] = [];
         const indices: number[] = [];
 
-        // Generate vertices
+        // Generate vertices and normals
         for (let j = 0; j <= radialSegments; j++) {
             for (let i = 0; i <= tubularSegments; i++) {
                 const u = (i / tubularSegments) * Math.PI * 2;
@@ -21,6 +22,18 @@ export class TorusGeometry extends Geometry {
                 const z = tube * Math.sin(v);
 
                 vertices.push(x, y, z);
+
+                // Calculate normal (from torus center to vertex on tube surface)
+                const centerX = radius * Math.cos(u);
+                const centerY = radius * Math.sin(u);
+                const centerZ = 0;
+
+                const nx = x - centerX;
+                const ny = y - centerY;
+                const nz = z - centerZ;
+
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                normals.push(nx / len, ny / len, nz / len);
             }
         }
 
@@ -37,6 +50,10 @@ export class TorusGeometry extends Geometry {
             }
         }
 
-        super(new Float32Array(vertices), new Uint32Array(indices));
+        super(
+            new Float32Array(vertices),
+            new Uint32Array(indices),
+            new Float32Array(normals)
+        );
     }
 }

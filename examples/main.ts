@@ -13,6 +13,9 @@ import {
     Scene,
     SphereGeometry,
     TorusGeometry,
+    PhongMaterial,
+    DirectionalLight,
+    LambertMaterial,
 } from "../src";
 import { Vector3 } from "../src/math";
 
@@ -25,10 +28,24 @@ renderer.debug = true;
 
 const scene = new Scene();
 
+// Set Ambient Light
+scene.ambientLight = new Vector3(0.2, 0.2, 0.2);
+
+// Add Directional Light
+const light = new DirectionalLight(new Vector3(1, 1, 1), 1.0);
+light.position.set(5, 5, 5);
+light.lookAt(new Vector3(0, 0, 0));
+scene.add(light);
+
 // Create eight different materials
-const orangeMaterial = new BasicMaterial({ color: new Vector3(1.0, 0.5, 0.2) });
+const orangeMaterial = new LambertMaterial({ color: new Vector3(1.0, 0.5, 0.2) });
 const purpleMaterial = new BasicMaterial({ color: new Vector3(0.6, 0.2, 0.9) });
-const greenMaterial = new BasicMaterial({ color: new Vector3(0.2, 0.9, 0.4) });
+// Use PhongMaterial for the sphere
+const greenMaterial = new PhongMaterial({ 
+    color: new Vector3(0.2, 0.9, 0.4),
+    specular: new Vector3(1, 1, 1),
+    shininess: 30
+});
 const blueMaterial = new BasicMaterial({ color: new Vector3(0.2, 0.4, 0.9) });
 const yellowMaterial = new BasicMaterial({ color: new Vector3(0.9, 0.9, 0.2) });
 const redMaterial = new BasicMaterial({ color: new Vector3(0.9, 0.2, 0.2) });
@@ -139,6 +156,20 @@ cameraFolder.add(camera.position, "y", -20, 20);
 cameraFolder.add(camera.position, "z", -20, 20);
 cameraFolder.open();
 
+const lightFolder = gui.addFolder("Light");
+lightFolder.add(light.position, "x", -10, 10).name("Light X");
+lightFolder.add(light.position, "y", -10, 10).name("Light Y");
+lightFolder.add(light.position, "z", -10, 10).name("Light Z");
+lightFolder.add(light, "intensity", 0, 2).name("Intensity");
+lightFolder.open();
+
+const ambientFolder = gui.addFolder("Ambient Light");
+const ambientConfig = { intensity: 0.2 };
+ambientFolder.add(ambientConfig, "intensity", 0, 1).name("Intensity").onChange((v: number) => {
+    scene.ambientLight.set(v, v, v);
+});
+ambientFolder.open();
+
 window.addEventListener("resize", () => {
     renderer.resize();
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -147,10 +178,14 @@ window.addEventListener("resize", () => {
 
 function frame() {
     stats.begin();
+    
+    // Update light direction based on position (looking at 0,0,0)
+    light.lookAt(new Vector3(0, 0, 0));
+    
     renderer.render(scene, camera);
     
-    panelCalls.update(renderer.info.render.calls, 100); // Max value 100? Adjust as needed
-    panelTris.update(renderer.info.render.triangles, 1000); // Max value 1000? Adjust as needed
+    panelCalls.update(renderer.debugInfo.render.calls, 100);
+    panelTris.update(renderer.debugInfo.render.triangles, 1000);
     
     stats.end();
     

@@ -9,11 +9,12 @@ export class ConeGeometry extends Geometry {
         openEnded = false,
     } = {}) {
         const vertices: number[] = [];
+        const normals: number[] = [];
         const indices: number[] = [];
 
         const halfHeight = height / 2;
 
-        // Generate vertices for the sides (tip to base)
+        // Generate vertices and normals for the sides (tip to base)
         for (let y = 0; y <= heightSegments; y++) {
             const v = y / heightSegments;
             const currentHeight = v * height - halfHeight;
@@ -28,6 +29,14 @@ export class ConeGeometry extends Geometry {
                 const pz = currentRadius * Math.sin(theta);
 
                 vertices.push(px, py, pz);
+
+                // Calculate cone surface normal (points outward and slightly up)
+                const nx = Math.cos(theta);
+                const nz = Math.sin(theta);
+                // Normalize the normal vector (approximate)
+                const ny = radius / height;
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                normals.push(nx / len, ny / len, nz / len);
             }
         }
 
@@ -48,12 +57,14 @@ export class ConeGeometry extends Geometry {
         if (!openEnded) {
             const baseCenterIndex = vertices.length / 3;
             vertices.push(0, -halfHeight, 0); // Base center
+            normals.push(0, -1, 0); // Normal points down
 
             for (let x = 0; x <= radialSegments; x++) {
                 const theta = (x / radialSegments) * Math.PI * 2;
                 const px = radius * Math.cos(theta);
                 const pz = radius * Math.sin(theta);
                 vertices.push(px, -halfHeight, pz);
+                normals.push(0, -1, 0);
             }
 
             // Base cap indices
@@ -65,6 +76,10 @@ export class ConeGeometry extends Geometry {
             }
         }
 
-        super(new Float32Array(vertices), new Uint32Array(indices));
+        super(
+            new Float32Array(vertices),
+            new Uint32Array(indices),
+            new Float32Array(normals)
+        );
     }
 }

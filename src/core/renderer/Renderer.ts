@@ -1,13 +1,18 @@
-import { Matrix4 } from "../../math";
+import { Matrix4, Vector3 } from "../../math";
 import type { Camera } from "../camera/Camera";
 import type { Geometry } from "../geometry/Geometry";
 import type { Material } from "../material/Material";
 import { Mesh } from "../object/Mesh";
 import { Program } from "./Program";
 import type { Scene } from "../scene/Scene";
+import { Light } from "../light/Light";
+import { DirectionalLight } from "../light/DirectionalLight";
+import { PhongMaterial } from "../material/PhongMaterial";
+import { LambertMaterial } from "../material/LambertMaterial";
 
 interface GeometryData {
     vertexBuffer: GPUBuffer;
+    normalBuffer: GPUBuffer | null;
     indexBuffer: GPUBuffer | null;
 }
 
@@ -44,6 +49,8 @@ export class Renderer {
     private depthTextureView!: GPUTextureView;
     private geometryCache = new Map<number, GeometryData>();
     private materialDataCache = new Map<number, MaterialData>();
+    private lightingBuffer: GPUBuffer | null = null;
+    private lightingBindGroupCache = new WeakMap<GPURenderPipeline, GPUBindGroup>();
 
     public debugInfo = {
         render: {
@@ -141,6 +148,26 @@ export class Renderer {
         });
         this.device.queue.writeBuffer(vertexBuffer, 0, geometry.vertices as any);
 
+        let normalBuffer: GPUBuffer | null = null;
+        if (geometry.normals) {
+            normalBuffer = this.device.createBuffer({
+                label: `Normal Buffer for Geometry ${geometry.id}`,
+                size: geometry.normals.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            });
+            this.device.queue.writeBuffer(normalBuffer, 0, geometry.normals as any);
+        } else {
+             // Create a dummy normal buffer if missing, to avoid crashes if pipeline expects it
+             // Just use zero vectors
+             const dummyNormals = new Float32Array(geometry.vertices.length);
+             normalBuffer = this.device.createBuffer({
+                label: `Dummy Normal Buffer for Geometry ${geometry.id}`,
+                size: dummyNormals.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            });
+            this.device.queue.writeBuffer(normalBuffer, 0, dummyNormals as any);
+        }
+
         let indexBuffer: GPUBuffer | null = null;
         if (geometry.indices) {
             indexBuffer = this.device.createBuffer({
@@ -151,7 +178,7 @@ export class Renderer {
             this.device.queue.writeBuffer(indexBuffer, 0, geometry.indices as any);
         }
 
-        const data: GeometryData = { vertexBuffer, indexBuffer };
+        const data: GeometryData = { vertexBuffer, normalBuffer, indexBuffer };
         // Store the new buffers in the cache for next time.
         this.geometryCache.set(geometry.id, data);
         return data;
@@ -250,6 +277,54 @@ export class Renderer {
             camera.viewMatrix,
         );
 
+        // --- Collect Lights ---
+        const lights: Light[] = [];
+
+        scene.traverse((object) => {
+            if (object instanceof Light) {
+                lights.push(object);
+            }
+        });
+
+        // --- Update Lighting Buffer ---
+        // Struct: ambientColor(3), lightCount(1), lights[1] { direction(3), intensity(1), color(3), padding(1) }
+        
+        const lightingDataSize = 16 + 32 * 1; // Support 1 light for now
+        if (!this.lightingBuffer || this.lightingBuffer.size < lightingDataSize) {
+            if (this.lightingBuffer) this.lightingBuffer.destroy();
+            this.lightingBuffer = this.device.createBuffer({
+                label: "Lighting Uniform Buffer",
+                size: lightingDataSize,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            // Clear cache because buffer changed
+            this.lightingBindGroupCache = new WeakMap();
+        }
+
+        const lightingData = new Float32Array(lightingDataSize / 4);
+        
+        // Ambient Color
+        lightingData.set(scene.ambientLight.toArray(), 0);
+        
+        // Light Count
+        new Uint32Array(lightingData.buffer, 12, 1)[0] = lights.length;
+
+        if (lights.length > 0) {
+            const light = lights[0];
+            let direction = new Vector3(0, 0, -1);
+            if (light instanceof DirectionalLight) {
+                direction = light.direction;
+            }
+            // Direction
+            lightingData.set(direction.toArray(), 4);
+            // Intensity
+            lightingData[7] = light.intensity;
+            // Color
+            lightingData.set(light.color.toArray(), 8);
+        }
+
+        this.device.queue.writeBuffer(this.lightingBuffer, 0, lightingData);
+
         for (const mesh of renderList) {
             const materialData = this.getMaterialData(mesh.material);
             const geometryData = this.getGeometryData(mesh.geometry);
@@ -260,7 +335,7 @@ export class Renderer {
             if (!meshData) {
                 const uniformBuffer = this.device.createBuffer({
                     label: `MVP Buffer for Mesh ${mesh.id}`,
-                    size: 16 * 4, // 4x4 matrix
+                    size: 52 * 4, // MVP (16) + Model (16) + Normal (16) + CameraPos (4)
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                 });
 
@@ -291,17 +366,45 @@ export class Renderer {
                 mesh.worldMatrix,
             );
             
+            const modelMatrix = mesh.worldMatrix;
+            const normalMatrix = new Matrix4().copy(modelMatrix).invert().transpose();
+
             // Write to the MESH-SPECIFIC buffer
+            // We need to write 3 matrices: MVP, Model, Normal, and Camera Position
+            const uniformData = new Float32Array(52);
+            uniformData.set(mvpMatrix.toArray(), 0);
+            uniformData.set(modelMatrix.toArray(), 16);
+            uniformData.set(normalMatrix.toArray(), 32);
+            uniformData.set(camera.position.toArray(), 48);
+
             this.device.queue.writeBuffer(
                 meshData.uniformBuffer,
                 0,
-                new Float32Array(mvpMatrix.toArray()) as any,
+                uniformData as any,
             );
 
             passEncoder.setBindGroup(0, meshData.bindGroup);
             passEncoder.setBindGroup(1, materialData.bindGroup);
 
+            // Bind Group 2 (Lighting) if available
+            if ((mesh.material instanceof PhongMaterial || mesh.material instanceof LambertMaterial) && this.lightingBuffer) {
+                let lightingBindGroup = this.lightingBindGroupCache.get(program.pipeline);
+                if (!lightingBindGroup) {
+                    lightingBindGroup = this.device.createBindGroup({
+                        layout: program.pipeline.getBindGroupLayout(2),
+                        entries: [
+                            { binding: 0, resource: { buffer: this.lightingBuffer } },
+                        ],
+                    });
+                    this.lightingBindGroupCache.set(program.pipeline, lightingBindGroup);
+                }
+                passEncoder.setBindGroup(2, lightingBindGroup);
+            }
+
             passEncoder.setVertexBuffer(0, geometryData.vertexBuffer);
+            if (geometryData.normalBuffer) {
+                passEncoder.setVertexBuffer(1, geometryData.normalBuffer);
+            }
             if (geometryData.indexBuffer) {
                 passEncoder.setIndexBuffer(geometryData.indexBuffer, "uint32");
                 passEncoder.drawIndexed(mesh.geometry.indexCount);

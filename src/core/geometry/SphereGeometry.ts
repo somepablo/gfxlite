@@ -1,4 +1,5 @@
 import { Geometry } from "../geometry/Geometry";
+import { Vector3 } from "../../math";
 
 export class SphereGeometry extends Geometry {
     constructor({
@@ -40,6 +41,16 @@ export class SphereGeometry extends Geometry {
             }
         }
 
-        super(new Float32Array(vertices), new Uint32Array(indices));
+        // For a sphere, normals are the same as positions (normalized)
+        const normals = [];
+        for (let i = 0; i < vertices.length; i += 3) {
+            const x = vertices[i];
+            const y = vertices[i + 1];
+            const z = vertices[i + 2];
+            const n = new Vector3(x, y, z).normalize();
+            normals.push(n.x, n.y, n.z);
+        }
+
+        super(new Float32Array(vertices), new Uint32Array(indices), new Float32Array(normals));
     }
 }

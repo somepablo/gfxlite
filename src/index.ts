@@ -11,3 +11,7 @@ export { TorusGeometry } from "./core/geometry/TorusGeometry";
 export { CircleGeometry } from "./core/geometry/CircleGeometry";
 export { ConeGeometry } from "./core/geometry/ConeGeometry";
 export { Mesh } from "./core/object/Mesh";
+export { PhongMaterial } from "./core/material/PhongMaterial";
+export { LambertMaterial } from "./core/material/LambertMaterial";
+export { Light } from "./core/light/Light";
+export { DirectionalLight } from "./core/light/DirectionalLight";

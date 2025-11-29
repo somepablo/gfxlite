@@ -30,17 +30,28 @@ export class Program {
                 module: vertexModule,
                 entryPoint: vertex.entryPoint || "main",
                 buffers: [
-                    // This describes the vertex data layout
-                    {
-                        arrayStride: 3 * 4, // 3 floats * 4 bytes per float
-                        attributes: [
-                            {
-                                shaderLocation: 0,
-                                offset: 0,
-                                format: "float32x3",
-                            }, // position
-                        ],
-                    },
+                // Position buffer
+                {
+                    arrayStride: 3 * 4,
+                    attributes: [
+                        {
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: "float32x3",
+                        },
+                    ],
+                },
+                // Normal buffer
+                {
+                    arrayStride: 3 * 4,
+                    attributes: [
+                        {
+                            shaderLocation: 1,
+                            offset: 0,
+                            format: "float32x3",
+                        },
+                    ],
+                },
                 ],
             },
             fragment: {

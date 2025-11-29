@@ -1,3 +1,5 @@
+import type { Quaternion } from "./Quaternion";
+
 export class Vector3 {
     x: number;
     y: number;
@@ -130,5 +132,26 @@ export class Vector3 {
             dy = this.y - v.y,
             dz = this.z - v.z;
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    applyQuaternion(q: Quaternion) {
+        const x = this.x,
+            y = this.y,
+            z = this.z;
+        const qx = q.x,
+            qy = q.y,
+            qz = q.z,
+            qw = q.w;
+
+        const ix = qw * x + qy * z - qz * y;
+        const iy = qw * y + qz * x - qx * z;
+        const iz = qw * z + qx * y - qy * x;
+        const iw = -qx * x - qy * y - qz * z;
+
+        this.x = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+        this.y = iy * qw + iw * -qy + iz * -qx - ix * -qz;
+        this.z = iz * qw + iw * -qz + ix * -qy - iy * -qx;
+
+        return this;
     }
 }
