@@ -1,5 +1,6 @@
 export { Vector2 } from "./Vector2";
 export { Vector3 } from "./Vector3";
+export { Box3 } from "./Box3";
 export { Euler } from "./Euler";
 export { Quaternion } from "./Quaternion";
 export { Matrix3 } from "./Matrix3";

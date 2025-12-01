@@ -33,7 +33,6 @@ const scene = new Scene();
 scene.ambientLight = new Vector3(0.2, 0.2, 0.2);
 
 // Add Directional Light
-// Add DirectionalLight
 const light = new DirectionalLight(new Vector3(1, 1, 1), 1.0);
 light.position.set(5, 10, 5);
 light.castShadow = true;

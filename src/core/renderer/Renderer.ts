@@ -1,4 +1,4 @@
-import { Matrix4, Vector3 } from "../../math";
+import { Matrix4, Vector3, Box3 } from "../../math";
 import type { Camera } from "../camera/Camera";
 import type { Geometry } from "../geometry/Geometry";
 import type { Material } from "../material/Material";
@@ -321,6 +321,42 @@ export class Renderer {
         });
     }
 
+    private updateShadowCameraBounds(light: DirectionalLight, scene: Scene) {
+        const sceneBox = new Box3();
+        let hasGeometry = false;
+
+        scene.traverse((object) => {
+            if (object instanceof Mesh && (object.castShadow || object.receiveShadow) && object.geometry.boundingBox) {
+                const bbox = object.geometry.boundingBox.clone();
+                bbox.applyMatrix4(object.worldMatrix);
+                if (!hasGeometry) {
+                    sceneBox.copy(bbox);
+                    hasGeometry = true;
+                } else {
+                    sceneBox.union(bbox);
+                }
+            }
+        });
+
+        if (!hasGeometry) return;
+
+        light.shadow.camera.position.copy(light.position);
+        light.shadow.camera.rotation.copy(light.rotation);
+        light.shadow.camera.updateWorldMatrix();
+
+        const viewMatrix = light.shadow.camera.viewMatrix;
+        const lightSpaceBox = sceneBox.clone().applyMatrix4(viewMatrix);
+
+        const padding = 1.0;
+        light.shadow.camera.left = lightSpaceBox.min.x - padding;
+        light.shadow.camera.right = lightSpaceBox.max.x + padding;
+        light.shadow.camera.bottom = lightSpaceBox.min.y - padding;
+        light.shadow.camera.top = lightSpaceBox.max.y + padding;
+        light.shadow.camera.near = -lightSpaceBox.max.z - padding; 
+        light.shadow.camera.far = -lightSpaceBox.min.z + padding;
+        light.shadow.camera.updateProjectionMatrix();
+    }
+
     private renderShadows(scene: Scene, lights: Light[]) {
         if (!this.shadowsEnabled) return;
 
@@ -354,15 +390,13 @@ export class Renderer {
                 }
 
                 // Update Shadow Camera
-                // Position the shadow camera at a hypothetical position based on light direction
-                // For a directional light, position doesn't matter for direction, but matters for the orthographic frustum center.
-                // We'll just put it at 0,0,0 and orient it, or maybe follow the camera?
-                // For now, let's assume the light object's position is relevant or we just use direction.
-                // DirectionalLight usually has a position if it inherits from Object3D.
-                
-                shadow.camera.position.copy(light.position);
-                shadow.camera.rotation.copy(light.rotation);
-                shadow.camera.updateWorldMatrix(); // Ensure world matrix is up to date
+                if (shadow.autoUpdate) {
+                    this.updateShadowCameraBounds(light, scene);
+                } else {
+                    shadow.camera.position.copy(light.position);
+                    shadow.camera.rotation.copy(light.rotation);
+                    shadow.camera.updateWorldMatrix();
+                }
                 
                 // Render Scene to Shadow Map
                 const commandEncoder = this.device.createCommandEncoder();

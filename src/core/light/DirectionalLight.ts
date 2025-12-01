@@ -20,6 +20,7 @@ export class DirectionalLight extends Light {
         map: GPUTexture | undefined;
         view: GPUTextureView | undefined;
         sampler: GPUSampler | undefined;
+        autoUpdate: boolean;
     } = {
         camera: new OrthographicCamera(-5, 5, 5, -5, 0.5, 50),
         mapSize: { width: 2048, height: 2048 },
@@ -27,5 +28,6 @@ export class DirectionalLight extends Light {
         map: undefined,
         view: undefined,
         sampler: undefined,
+        autoUpdate: true,
     };
 }

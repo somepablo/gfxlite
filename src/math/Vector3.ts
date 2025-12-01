@@ -1,4 +1,5 @@
 import type { Quaternion } from "./Quaternion";
+import type { Matrix4 } from "./Matrix4";
 
 export class Vector3 {
     x: number;
@@ -159,6 +160,49 @@ export class Vector3 {
         this.y = iy * qw + iw * -qy + iz * -qx - ix * -qz;
         this.z = iz * qw + iw * -qz + ix * -qy - iy * -qx;
 
+        return this;
+    }
+
+    applyMatrix4(m: Matrix4) {
+        const x = this.x,
+            y = this.y,
+            z = this.z;
+        const e = m.elements;
+
+        const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
+
+        this.x = (e[0] * x + e[4] * y + e[8] * z + e[12]) * w;
+        this.y = (e[1] * x + e[5] * y + e[9] * z + e[13]) * w;
+        this.z = (e[2] * x + e[6] * y + e[10] * z + e[14]) * w;
+
+        return this;
+    }
+
+    min(v: Vector3) {
+        this.x = Math.min(this.x, v.x);
+        this.y = Math.min(this.y, v.y);
+        this.z = Math.min(this.z, v.z);
+        return this;
+    }
+
+    max(v: Vector3) {
+        this.x = Math.max(this.x, v.x);
+        this.y = Math.max(this.y, v.y);
+        this.z = Math.max(this.z, v.z);
+        return this;
+    }
+
+    addVectors(a: Vector3, b: Vector3) {
+        this.x = a.x + b.x;
+        this.y = a.y + b.y;
+        this.z = a.z + b.z;
+        return this;
+    }
+
+    subVectors(a: Vector3, b: Vector3) {
+        this.x = a.x - b.x;
+        this.y = a.y - b.y;
+        this.z = a.z - b.z;
         return this;
     }
 }
