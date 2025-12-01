@@ -1,5 +1,6 @@
 import { Light } from "./Light";
 import { Vector3 } from "../../math";
+import { OrthographicCamera } from "../camera/OrthographicCamera";
 
 export class DirectionalLight extends Light {
     constructor(color: Vector3 = new Vector3(1, 1, 1), intensity: number = 1) {
@@ -11,4 +12,20 @@ export class DirectionalLight extends Light {
         forward.applyQuaternion(this.rotation);
         return forward.normalize();
     }
+
+    shadow: {
+        camera: OrthographicCamera;
+        mapSize: { width: number; height: number };
+        bias: number;
+        map: GPUTexture | undefined;
+        view: GPUTextureView | undefined;
+        sampler: GPUSampler | undefined;
+    } = {
+        camera: new OrthographicCamera(-5, 5, 5, -5, 0.5, 50),
+        mapSize: { width: 2048, height: 2048 },
+        bias: 0.005,
+        map: undefined,
+        view: undefined,
+        sampler: undefined,
+    };
 }

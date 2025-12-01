@@ -7,20 +7,21 @@ export interface ProgramOptions {
         code: string;
         entryPoint?: string;
     };
+    multisample?: GPUMultisampleState;
 }
 
 export class Program {
     public pipeline: GPURenderPipeline;
 
-    constructor(device: GPUDevice, { vertex, fragment }: ProgramOptions) {
+    constructor(device: GPUDevice, options: ProgramOptions) {
         const vertexModule = device.createShaderModule({
             label: "Vertex Shader",
-            code: vertex.code,
+            code: options.vertex.code,
         });
 
         const fragmentModule = device.createShaderModule({
             label: "Fragment Shader",
-            code: fragment.code,
+            code: options.fragment.code,
         });
 
         this.pipeline = device.createRenderPipeline({
@@ -28,7 +29,7 @@ export class Program {
             layout: "auto", // Let WebGPU infer the layout from shaders
             vertex: {
                 module: vertexModule,
-                entryPoint: vertex.entryPoint || "main",
+                entryPoint: options.vertex.entryPoint || "main",
                 buffers: [
                 // Position buffer
                 {
@@ -56,7 +57,7 @@ export class Program {
             },
             fragment: {
                 module: fragmentModule,
-                entryPoint: fragment.entryPoint || "main",
+                entryPoint: options.fragment.entryPoint || "main",
                 targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
             },
             depthStencil: {
@@ -67,6 +68,7 @@ export class Program {
             primitive: {
                 topology: "triangle-list",
             },
+            multisample: options.multisample,
         });
     }
 }

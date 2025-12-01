@@ -18,6 +18,13 @@ export class Vector3 {
         return this;
     }
 
+    copy(v: Vector3) {
+        this.x = v.x;
+        this.y = v.y;
+        this.z = v.z;
+        return this;
+    }
+
     add(v: Vector3) {
         this.x += v.x;
         this.y += v.y;

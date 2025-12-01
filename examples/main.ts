@@ -15,13 +15,14 @@ import {
     TorusGeometry,
     PhongMaterial,
     DirectionalLight,
+    ShadowType,
     LambertMaterial,
 } from "../src";
-import { Vector3 } from "../src/math";
+import { Vector3, Euler } from "../src/math";
 
 const canvas = document.getElementById("gfx-canvas") as HTMLCanvasElement;
 
-const renderer = new Renderer(canvas);
+const renderer = new Renderer(canvas, { antialias: true, shadowType: ShadowType.PCFSoft });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.resize();
 renderer.debug = true;
@@ -32,8 +33,10 @@ const scene = new Scene();
 scene.ambientLight = new Vector3(0.2, 0.2, 0.2);
 
 // Add Directional Light
+// Add DirectionalLight
 const light = new DirectionalLight(new Vector3(1, 1, 1), 1.0);
-light.position.set(5, 5, 5);
+light.position.set(5, 10, 5);
+light.castShadow = true;
 light.lookAt(new Vector3(0, 0, 0));
 scene.add(light);
 
@@ -59,6 +62,8 @@ const boxGeometry = new BoxGeometry({
     depth: 1,
 });
 const box = new Mesh(boxGeometry, orangeMaterial);
+box.castShadow = true;
+box.receiveShadow = true;
 scene.add(box);
 
 // Box (larger)
@@ -69,6 +74,8 @@ const smallBoxGeometry = new BoxGeometry({
 });
 const smallBox = new Mesh(smallBoxGeometry, purpleMaterial);
 smallBox.position.x = 2;
+smallBox.castShadow = true;
+smallBox.receiveShadow = true;
 scene.add(smallBox);
 
 // Sphere
@@ -79,17 +86,25 @@ const sphereGeometry = new SphereGeometry({
 });
 const sphere = new Mesh(sphereGeometry, greenMaterial);
 sphere.position.set(-5, 0, 0);
+sphere.castShadow = true;
+sphere.receiveShadow = true;
 scene.add(sphere);
 
 // Plane
 const planeGeometry = new PlaneGeometry({
-    width: 3,
-    height: 3,
+    width: 20,
+    height: 20,
     widthSegments: 1,
     heightSegments: 1,
 });
-const plane = new Mesh(planeGeometry, blueMaterial);
+const planeMaterial = new PhongMaterial({ 
+    color: new Vector3(0.5, 0.5, 0.5),
+    specular: new Vector3(0.1, 0.1, 0.1),
+    shininess: 10
+});
+const plane = new Mesh(planeGeometry, planeMaterial);
 plane.position.set(0, -2, 0);
+plane.receiveShadow = true;
 scene.add(plane);
 
 // Cylinder
@@ -101,6 +116,8 @@ const cylinderGeometry = new CylinderGeometry({
 });
 const cylinder = new Mesh(cylinderGeometry, yellowMaterial);
 cylinder.position.set(5, 0, 0);
+cylinder.castShadow = true;
+cylinder.receiveShadow = true;
 scene.add(cylinder);
 
 // Torus
@@ -112,6 +129,8 @@ const torusGeometry = new TorusGeometry({
 });
 const torus = new Mesh(torusGeometry, redMaterial);
 torus.position.set(-2.5, 2, -3);
+torus.castShadow = true;
+torus.receiveShadow = true;
 scene.add(torus);
 
 // Circle
@@ -161,6 +180,7 @@ lightFolder.add(light.position, "x", -10, 10).name("Light X");
 lightFolder.add(light.position, "y", -10, 10).name("Light Y");
 lightFolder.add(light.position, "z", -10, 10).name("Light Z");
 lightFolder.add(light, "intensity", 0, 2).name("Intensity");
+lightFolder.add(light.shadow, "bias", 0, 0.01).name("Shadow Bias");
 lightFolder.open();
 
 const ambientFolder = gui.addFolder("Ambient Light");
@@ -169,6 +189,15 @@ ambientFolder.add(ambientConfig, "intensity", 0, 1).name("Intensity").onChange((
     scene.ambientLight.set(v, v, v);
 });
 ambientFolder.open();
+
+const shadowFolder = gui.addFolder("Shadow Properties");
+shadowFolder.add(renderer, "shadowsEnabled").name("Enable Shadows");
+shadowFolder.add(light, "castShadow").name("Cast Shadow");
+shadowFolder.add(renderer, "shadowType", { Basic: ShadowType.Basic, PCF: ShadowType.PCF, PCFSoft: ShadowType.PCFSoft }).name("Shadow Type");
+shadowFolder.add(box, "castShadow").name("Box Cast Shadow");
+shadowFolder.add(box, "receiveShadow").name("Box Receive Shadow");
+shadowFolder.add(plane, "receiveShadow").name("Plane Receive Shadow");
+shadowFolder.open();
 
 window.addEventListener("resize", () => {
     renderer.resize();
@@ -181,6 +210,10 @@ function frame() {
     
     // Update light direction based on position (looking at 0,0,0)
     light.lookAt(new Vector3(0, 0, 0));
+    
+    // Animate box
+    box.rotation.setFromEuler(new Euler(0, performance.now() / 1000, 0));
+    box.updateLocalMatrix();
     
     renderer.render(scene, camera);
     

@@ -1,4 +1,5 @@
 export { Renderer } from "./core/renderer/Renderer";
+export { ShadowType } from "./core/renderer/Renderer";
 export { Scene } from "./core/scene/Scene";
 export { Camera } from "./core/camera/Camera";
 export { PerspectiveCamera } from "./core/camera/PerspectiveCamera";

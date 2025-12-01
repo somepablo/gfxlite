@@ -15,6 +15,14 @@ export class Quaternion {
         this.w = w;
     }
 
+    copy(q: Quaternion) {
+        this.x = q.x;
+        this.y = q.y;
+        this.z = q.z;
+        this.w = q.w;
+        return this;
+    }
+
     setFromEuler(euler: Euler) {
         const x = euler.x,
             y = euler.y,

@@ -13,6 +13,9 @@ export class Object3D {
     public rotation: Quaternion = new Quaternion();
     public scale: Vector3 = new Vector3(1, 1, 1);
 
+    public castShadow: boolean = false;
+    public receiveShadow: boolean = false;
+
     public localMatrix: Matrix4 = new Matrix4();
     public worldMatrix: Matrix4 = new Matrix4();
 

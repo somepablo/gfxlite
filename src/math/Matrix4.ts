@@ -644,4 +644,40 @@ export class Matrix4 {
 
         return this;
     }
+
+    orthographic(
+        left: number,
+        right: number,
+        bottom: number,
+        top: number,
+        near: number,
+        far: number,
+    ) {
+        const w = 1.0 / (right - left);
+        const h = 1.0 / (top - bottom);
+        const p = 1.0 / (far - near);
+
+        const x = (right + left) * w;
+        const y = (top + bottom) * h;
+        const z = near * p;
+
+        this.elements[0] = 2 * w;
+        this.elements[1] = 0;
+        this.elements[2] = 0;
+        this.elements[3] = 0;
+        this.elements[4] = 0;
+        this.elements[5] = 2 * h;
+        this.elements[6] = 0;
+        this.elements[7] = 0;
+        this.elements[8] = 0;
+        this.elements[9] = 0;
+        this.elements[10] = -1 * p;
+        this.elements[11] = 0;
+        this.elements[12] = -x;
+        this.elements[13] = -y;
+        this.elements[14] = -z;
+        this.elements[15] = 1;
+
+        return this;
+    }
 }

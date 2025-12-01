@@ -27,6 +27,20 @@ interface MaterialData {
     bindGroup: GPUBindGroup;
 }
 
+export const ShadowType = {
+    Basic: 0,
+    PCF: 1,
+    PCFSoft: 2,
+} as const;
+
+export type ShadowType = typeof ShadowType[keyof typeof ShadowType];
+
+export interface RendererOptions {
+    antialias?: boolean;
+    shadowType?: ShadowType;
+    shadows?: boolean;
+}
+
 export class Renderer {
     public canvas: HTMLCanvasElement;
     public device!: GPUDevice;
@@ -52,6 +66,19 @@ export class Renderer {
     private lightingBuffer: GPUBuffer | null = null;
     private lightingBindGroupCache = new WeakMap<GPURenderPipeline, GPUBindGroup>();
 
+    // Shadows
+    private shadowMeshDataCache = new WeakMap<Mesh, { uniformBuffer: GPUBuffer, bindGroup: GPUBindGroup }>();
+    private dummyShadowMap!: GPUTextureView;
+    private dummyShadowSampler!: GPUSampler;
+    public shadowType: ShadowType = ShadowType.PCF;
+    public shadowsEnabled: boolean = true;
+    private shadowPipeline: GPURenderPipeline | null = null;
+
+    // MSAA
+    private sampleCount: number = 1;
+    private msaaTexture!: GPUTexture;
+    private msaaTextureView!: GPUTextureView;
+
     public debugInfo = {
         render: {
             calls: 0,
@@ -63,8 +90,15 @@ export class Renderer {
         },
     };
 
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement, options: RendererOptions = {}) {
         this.canvas = canvas;
+        this.sampleCount = options.antialias ? 4 : 1;
+        if (options.shadowType !== undefined) {
+            this.shadowType = options.shadowType;
+        }
+        if (options.shadows !== undefined) {
+            this.shadowsEnabled = options.shadows;
+        }
         this.initializationPromise = this.init();
     }
 
@@ -93,8 +127,20 @@ export class Renderer {
         });
         this.createFrameResources();
 
-        console.log("GFXLite Renderer Initialized");
-        this.isInitialized = true;
+    const dummyTexture = this.device.createTexture({
+        size: [1, 1],
+        format: "depth32float",
+        usage: GPUTextureUsage.TEXTURE_BINDING,
+    });
+    this.dummyShadowMap = dummyTexture.createView();
+    this.dummyShadowSampler = this.device.createSampler({
+        compare: "less",
+        minFilter: "linear",
+        magFilter: "linear",
+    });
+
+    console.log("GFXLite Renderer Initialized");
+    this.isInitialized = true;
     }
 
     public getPixelRatio(): number {
@@ -116,31 +162,38 @@ export class Renderer {
 
         if (this.device) {
             if (this.depthTexture) this.depthTexture.destroy();
-            this.depthTexture = this.device.createTexture({
-                size: [this.canvas.width, this.canvas.height],
-                format: "depth24plus",
-                usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            });
-            this.depthTextureView = this.depthTexture.createView();
+            if (this.msaaTexture) this.msaaTexture.destroy();
+            
+            this.createFrameResources();
         }
     }
 
     private createFrameResources() {
+        // Create MSAA Texture
+        this.msaaTexture = this.device.createTexture({
+            size: [this.canvas.width, this.canvas.height],
+            format: this.presentationFormat,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            sampleCount: this.sampleCount,
+        });
+        this.msaaTextureView = this.msaaTexture.createView();
+
+        // Create Depth Texture (Multisampled)
         this.depthTexture = this.device.createTexture({
             size: [this.canvas.width, this.canvas.height],
             format: "depth24plus",
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            sampleCount: this.sampleCount,
         });
         this.depthTextureView = this.depthTexture.createView();
     }
 
     private getGeometryData(geometry: Geometry): GeometryData {
-        // If we've already created buffers for this geometry, return them.
+        
         if (this.geometryCache.has(geometry.id)) {
             return this.geometryCache.get(geometry.id)!;
         }
 
-        // --- If not, create the GPU buffers now ---
         const vertexBuffer = this.device.createBuffer({
             label: `Vertex Buffer for Geometry ${geometry.id}`,
             size: geometry.vertices.byteLength,
@@ -158,7 +211,6 @@ export class Renderer {
             this.device.queue.writeBuffer(normalBuffer, 0, geometry.normals as any);
         } else {
              // Create a dummy normal buffer if missing, to avoid crashes if pipeline expects it
-             // Just use zero vectors
              const dummyNormals = new Float32Array(geometry.vertices.length);
              normalBuffer = this.device.createBuffer({
                 label: `Dummy Normal Buffer for Geometry ${geometry.id}`,
@@ -179,7 +231,6 @@ export class Renderer {
         }
 
         const data: GeometryData = { vertexBuffer, normalBuffer, indexBuffer };
-        // Store the new buffers in the cache for next time.
         this.geometryCache.set(geometry.id, data);
         return data;
     }
@@ -198,6 +249,7 @@ export class Renderer {
             program = new Program(this.device, {
                 vertex: { code: vertexCode },
                 fragment: { code: fragmentCode },
+                multisample: { count: this.sampleCount },
             });
             this.programCache.set(cacheKey, program);
         }
@@ -209,7 +261,6 @@ export class Renderer {
             size: uniformData.byteLength, // Use the size of the provided data
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        // Upload initial data
         this.device.queue.writeBuffer(uniformBuffer, 0, uniformData as any);
 
         const bindGroup = this.device.createBindGroup({
@@ -220,6 +271,174 @@ export class Renderer {
         const data = { program, uniformBuffer, bindGroup };
         this.materialDataCache.set(material.id, data);
         return data;
+    }
+
+    private createShadowPipeline() {
+        const shadowVertexShader = /* wgsl */ `
+            struct Uniforms {
+                mvpMatrix : mat4x4<f32>,
+            };
+            @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+            @vertex
+            fn main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
+                return uniforms.mvpMatrix * vec4<f32>(position, 1.0);
+            }
+        `;
+
+        const vertexModule = this.device.createShaderModule({
+            label: "Shadow Vertex Shader",
+            code: shadowVertexShader,
+        });
+
+        this.shadowPipeline = this.device.createRenderPipeline({
+            label: "Shadow Pipeline",
+            layout: "auto",
+            vertex: {
+                module: vertexModule,
+                entryPoint: "main",
+                buffers: [
+                    {
+                        arrayStride: 3 * 4,
+                        attributes: [
+                            {
+                                shaderLocation: 0,
+                                offset: 0,
+                                format: "float32x3",
+                            },
+                        ],
+                    },
+                ],
+            },
+            depthStencil: {
+                depthWriteEnabled: true,
+                depthCompare: "less",
+                format: "depth32float",
+            },
+            primitive: {
+                topology: "triangle-list",
+            },
+        });
+    }
+
+    private renderShadows(scene: Scene, lights: Light[]) {
+        if (!this.shadowsEnabled) return;
+
+        if (!this.shadowPipeline) {
+            this.createShadowPipeline();
+        }
+
+        for (const light of lights) {
+            if (light instanceof DirectionalLight && light.castShadow) {
+                const shadow = light.shadow;
+                
+                // Create shadow map resources if they don't exist
+                if (!shadow.map) {
+                    shadow.map = this.device.createTexture({
+                        size: [shadow.mapSize.width, shadow.mapSize.height],
+                        format: "depth32float",
+                        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+                    });
+                    shadow.view = shadow.map.createView();
+                    
+                    // Create sampler based on shadow type
+                    // Basic = Nearest (Hard)
+                    // PCF/PCFSoft = Linear (Soft)
+                    const filterMode: GPUFilterMode = this.shadowType === ShadowType.Basic ? "nearest" : "linear";
+                    
+                    shadow.sampler = this.device.createSampler({
+                        compare: "less",
+                        minFilter: filterMode,
+                        magFilter: filterMode,
+                    });
+                }
+
+                // Update Shadow Camera
+                // Position the shadow camera at a hypothetical position based on light direction
+                // For a directional light, position doesn't matter for direction, but matters for the orthographic frustum center.
+                // We'll just put it at 0,0,0 and orient it, or maybe follow the camera?
+                // For now, let's assume the light object's position is relevant or we just use direction.
+                // DirectionalLight usually has a position if it inherits from Object3D.
+                
+                shadow.camera.position.copy(light.position);
+                shadow.camera.rotation.copy(light.rotation);
+                shadow.camera.updateWorldMatrix(); // Ensure world matrix is up to date
+                
+                // Render Scene to Shadow Map
+                const commandEncoder = this.device.createCommandEncoder();
+                const passEncoder = commandEncoder.beginRenderPass({
+                    colorAttachments: [], // No color output
+                    depthStencilAttachment: {
+                        view: shadow.view!,
+                        depthClearValue: 1.0,
+                        depthLoadOp: "clear",
+                        depthStoreOp: "store",
+                    },
+                });
+
+                passEncoder.setPipeline(this.shadowPipeline!);
+
+                const viewProjectionMatrix = new Matrix4().multiplyMatrices(
+                    shadow.camera.projectionMatrix,
+                    shadow.camera.viewMatrix
+                );
+
+                scene.traverse((object) => {
+                    if (object instanceof Mesh && object.castShadow) {
+                        // We need a bind group for the shadow pipeline (MVP matrix)
+                        // We can't reuse the main mesh bind group because the layout might be different (Shadow pipeline only has Group 0 with MVP)
+                        // And the values are different (Light ViewProj instead of Camera ViewProj)
+                        
+                        // For performance, we should cache this, but for now let's create a temporary bind group
+                        // Actually, we can reuse the logic if we had a "ShadowMaterial" but we don't.
+                        
+                        // We need to upload the MVP matrix for this object from the Light's POV.
+                        const mvpMatrix = new Matrix4().multiplyMatrices(
+                            viewProjectionMatrix,
+                            object.worldMatrix
+                        );
+
+                        // Check cache
+                        let shadowData = this.shadowMeshDataCache.get(object);
+
+                        if (!shadowData) {
+                            const uniformBuffer = this.device.createBuffer({
+                                size: 64,
+                                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                            });
+
+                            const bindGroup = this.device.createBindGroup({
+                                layout: this.shadowPipeline!.getBindGroupLayout(0),
+                                entries: [
+                                    { binding: 0, resource: { buffer: uniformBuffer } }
+                                ]
+                            });
+
+                            shadowData = { uniformBuffer, bindGroup };
+                            this.shadowMeshDataCache.set(object, shadowData);
+                        }
+
+                        // Update buffer
+                        this.device.queue.writeBuffer(shadowData.uniformBuffer, 0, new Float32Array(mvpMatrix.toArray()));
+
+                        passEncoder.setBindGroup(0, shadowData.bindGroup);
+                        
+                        const geometryData = this.getGeometryData(object.geometry);
+                        passEncoder.setVertexBuffer(0, geometryData.vertexBuffer);
+                        
+                        if (geometryData.indexBuffer) {
+                            passEncoder.setIndexBuffer(geometryData.indexBuffer, "uint32");
+                            passEncoder.drawIndexed(object.geometry.indexCount);
+                        } else {
+                            passEncoder.draw(object.geometry.indexCount);
+                        }
+                    }
+                });
+
+                passEncoder.end();
+                this.device.queue.submit([commandEncoder.finish()]);
+            }
+        }
     }
 
     public async render(scene: Scene, camera: Camera) {
@@ -248,20 +467,25 @@ export class Renderer {
 
         const commandEncoder = this.device.createCommandEncoder();
         const textureView = this.context.getCurrentTexture().createView();
+        
+        const colorAttachment: GPURenderPassColorAttachment = {
+            view: this.sampleCount > 1 ? this.msaaTextureView : textureView,
+            clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
+            loadOp: "clear",
+            storeOp: this.sampleCount > 1 ? "discard" : "store",
+        };
+
+        if (this.sampleCount > 1) {
+            colorAttachment.resolveTarget = textureView;
+        }
+
         const renderPassDescriptor: GPURenderPassDescriptor = {
-            colorAttachments: [
-                {
-                    view: textureView,
-                    clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
-                    loadOp: "clear",
-                    storeOp: "store",
-                },
-            ],
+            colorAttachments: [colorAttachment],
             depthStencilAttachment: {
                 view: this.depthTextureView,
                 depthClearValue: 1.0,
                 depthLoadOp: "clear",
-                depthStoreOp: "store",
+                depthStoreOp: "discard",
             },
         };
 
@@ -286,10 +510,12 @@ export class Renderer {
             }
         });
 
+        this.renderShadows(scene, lights);
+
         // --- Update Lighting Buffer ---
-        // Struct: ambientColor(3), lightCount(1), lights[1] { direction(3), intensity(1), color(3), padding(1) }
+        // Struct: ambientColor(3), lightCount(1), lights[1] { direction(3), intensity(1), color(3), padding(1), viewProj(16), shadowMapSize(2), padding(2) }
         
-        const lightingDataSize = 16 + 32 * 1; // Support 1 light for now
+        const lightingDataSize = 16 + (32 + 64 + 16) * 1; // Support 1 light for now. Added 16 bytes for shadowMapSize + padding. Total stride = 112 bytes.
         if (!this.lightingBuffer || this.lightingBuffer.size < lightingDataSize) {
             if (this.lightingBuffer) this.lightingBuffer.destroy();
             this.lightingBuffer = this.device.createBuffer({
@@ -309,11 +535,14 @@ export class Renderer {
         // Light Count
         new Uint32Array(lightingData.buffer, 12, 1)[0] = lights.length;
 
+        let shadowLight: DirectionalLight | null = null;
+
         if (lights.length > 0) {
             const light = lights[0];
             let direction = new Vector3(0, 0, -1);
             if (light instanceof DirectionalLight) {
                 direction = light.direction;
+                if (light.castShadow) shadowLight = light;
             }
             // Direction
             lightingData.set(direction.toArray(), 4);
@@ -321,6 +550,28 @@ export class Renderer {
             lightingData[7] = light.intensity;
             // Color
             lightingData.set(light.color.toArray(), 8);
+            
+            // Shadow ViewProj Matrix
+            if (shadowLight && shadowLight.shadow.camera) {
+                 const shadowViewProj = new Matrix4().multiplyMatrices(
+                    shadowLight.shadow.camera.projectionMatrix,
+                    shadowLight.shadow.camera.viewMatrix
+                );
+                lightingData.set(shadowViewProj.toArray(), 12); 
+            }
+            
+            // Shadow Type (packed in padding after color)
+            // Color is at offset 8 (3 floats). Padding is at offset 11.
+            lightingData[11] = (this.shadowsEnabled && shadowLight && shadowLight.castShadow) ? this.shadowType : -1.0;
+
+            // Shadow Map Size
+            if (shadowLight) {
+                lightingData[28] = shadowLight.shadow.mapSize.width;
+                lightingData[29] = shadowLight.shadow.mapSize.height;
+            } else {
+                lightingData[28] = 0;
+                lightingData[29] = 0;
+            }
         }
 
         this.device.queue.writeBuffer(this.lightingBuffer, 0, lightingData);
@@ -376,6 +627,8 @@ export class Renderer {
             uniformData.set(modelMatrix.toArray(), 16);
             uniformData.set(normalMatrix.toArray(), 32);
             uniformData.set(camera.position.toArray(), 48);
+            // Pack receiveShadow into the w component of cameraPosition (offset 51)
+            uniformData[51] = mesh.receiveShadow ? 1.0 : 0.0;
 
             this.device.queue.writeBuffer(
                 meshData.uniformBuffer,
@@ -390,11 +643,22 @@ export class Renderer {
             if ((mesh.material instanceof PhongMaterial || mesh.material instanceof LambertMaterial) && this.lightingBuffer) {
                 let lightingBindGroup = this.lightingBindGroupCache.get(program.pipeline);
                 if (!lightingBindGroup) {
+                    const entries: GPUBindGroupEntry[] = [
+                        { binding: 0, resource: { buffer: this.lightingBuffer } },
+                    ];
+
+                    // If we have a shadow map, bind it. Otherwise use dummy.
+                    if (shadowLight && shadowLight.shadow.map && shadowLight.shadow.view && shadowLight.shadow.sampler) {
+                         entries.push({ binding: 1, resource: shadowLight.shadow.view });
+                         entries.push({ binding: 2, resource: shadowLight.shadow.sampler });
+                    } else {
+                         entries.push({ binding: 1, resource: this.dummyShadowMap });
+                         entries.push({ binding: 2, resource: this.dummyShadowSampler });
+                    }
+
                     lightingBindGroup = this.device.createBindGroup({
                         layout: program.pipeline.getBindGroupLayout(2),
-                        entries: [
-                            { binding: 0, resource: { buffer: this.lightingBuffer } },
-                        ],
+                        entries: entries,
                     });
                     this.lightingBindGroupCache.set(program.pipeline, lightingBindGroup);
                 }
