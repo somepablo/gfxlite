@@ -79,6 +79,11 @@ export class Renderer {
     private msaaTexture!: GPUTexture;
     private msaaTextureView!: GPUTextureView;
 
+    // Temp objects for optimization
+    private _tempMatrix = new Matrix4();
+    private _tempMatrix2 = new Matrix4();
+    private _tempFloat32 = new Float32Array(16);
+
     public debugInfo = {
         render: {
             calls: 0,
@@ -412,22 +417,15 @@ export class Renderer {
 
                 passEncoder.setPipeline(this.shadowPipeline!);
 
-                const viewProjectionMatrix = new Matrix4().multiplyMatrices(
+                const viewProjectionMatrix = this._tempMatrix2.multiplyMatrices(
                     shadow.camera.projectionMatrix,
                     shadow.camera.viewMatrix
                 );
 
                 scene.traverse((object) => {
                     if (object instanceof Mesh && object.castShadow) {
-                        // We need a bind group for the shadow pipeline (MVP matrix)
-                        // We can't reuse the main mesh bind group because the layout might be different (Shadow pipeline only has Group 0 with MVP)
-                        // And the values are different (Light ViewProj instead of Camera ViewProj)
-                        
-                        // For performance, we should cache this, but for now let's create a temporary bind group
-                        // Actually, we can reuse the logic if we had a "ShadowMaterial" but we don't.
-                        
                         // We need to upload the MVP matrix for this object from the Light's POV.
-                        const mvpMatrix = new Matrix4().multiplyMatrices(
+                        const mvpMatrix = this._tempMatrix.multiplyMatrices(
                             viewProjectionMatrix,
                             object.worldMatrix
                         );
@@ -453,7 +451,9 @@ export class Renderer {
                         }
 
                         // Update buffer
-                        this.device.queue.writeBuffer(shadowData.uniformBuffer, 0, new Float32Array(mvpMatrix.toArray()));
+                        // Update buffer
+                        this._tempFloat32.set(mvpMatrix.elements);
+                        this.device.queue.writeBuffer(shadowData.uniformBuffer, 0, this._tempFloat32);
 
                         passEncoder.setBindGroup(0, shadowData.bindGroup);
                         
