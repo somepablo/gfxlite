@@ -78,19 +78,21 @@ export class PhongMaterial extends Material {
         direction : vec3<f32>,
         intensity : f32,
         color : vec3<f32>,
-        shadowType : f32, // Padding used for shadow type
+        shadowLayerIndex : i32,
         viewProj : mat4x4<f32>,
         shadowMapSize : vec2<f32>,
-        padding : vec2<f32>,
+        shadowType : f32,
+        padding : f32,
       };
       struct LightUniforms {
         ambientColor : vec3<f32>,
         lightCount : u32,
-        lights : array<Light, 1>,
+        lights : array<Light, 16>,
       };
       @group(2) @binding(0) var<uniform> lighting : LightUniforms;
-      @group(2) @binding(1) var shadowMap: texture_depth_2d;
+      @group(2) @binding(1) var shadowMap: texture_depth_2d_array;
       @group(2) @binding(2) var shadowSampler: sampler_comparison;
+
 
       @fragment
       fn main(@location(0) vPosition : vec3<f32>, @location(1) vNormal : vec3<f32>) -> @location(0) vec4<f32> {
@@ -121,28 +123,27 @@ export class PhongMaterial extends Material {
 
              // Sample shadow map
              var shadowSample = 0.0;
+             let layerIndex = light.shadowLayerIndex;
              let shadowType = light.shadowType;
 
-             if (shadowType > 1.5) {
-                 // PCFSoft (5x5)
-                 var shadowSum = 0.0;
-                 let texelSize = vec2<f32>(1.0 / light.shadowMapSize.x, 1.0 / light.shadowMapSize.y);
-                 for (var x = -2; x <= 2; x++) {
-                     for (var y = -2; y <= 2; y++) {
-                         let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
-                         shadowSum += textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy + offset, shadowPos.z - 0.005);
+             if (layerIndex >= 0) {
+                 if (shadowType > 1.5) {
+                     // PCFSoft (5x5)
+                     var shadowSum = 0.0;
+                     let texelSize = vec2<f32>(1.0 / light.shadowMapSize.x, 1.0 / light.shadowMapSize.y);
+                     for (var x = -2; x <= 2; x++) {
+                         for (var y = -2; y <= 2; y++) {
+                             let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
+                             shadowSum += textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy + offset, layerIndex, shadowPos.z - 0.005);
+                         }
                      }
+                     shadowSample = shadowSum / 25.0;
+                 } else {
+                     // PCF (Single sample, hardware filtering) or Basic
+                     shadowSample = textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy, layerIndex, shadowPos.z - 0.005);
                  }
-                 shadowSample = shadowSum / 25.0;
-             } else if (shadowType > 0.5) {
-                 // PCF (Single sample, hardware filtering)
-                 shadowSample = textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy, shadowPos.z - 0.005);
-             } else if (shadowType > -0.5) {
-                 // Basic (Single sample, hardware filtering if linear, or nearest if configured)
-                 // Since we configure sampler based on type, this is just a single sample
-                 shadowSample = textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy, shadowPos.z - 0.005);
              } else {
-                 // No shadow (shouldn't happen if castShadow is checked, but safe fallback)
+                 // No shadow
                  shadowSample = 1.0;
              }
 

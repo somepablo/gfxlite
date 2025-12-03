@@ -33,11 +33,19 @@ const scene = new Scene();
 scene.ambientLight = new Vector3(0.2, 0.2, 0.2);
 
 // Add Directional Light
+// Add Directional Light 1
 const light = new DirectionalLight(new Vector3(1, 1, 1), 1.0);
 light.position.set(5, 10, 5);
 light.castShadow = true;
 light.lookAt(new Vector3(0, 0, 0));
 scene.add(light);
+
+// Add Directional Light 2
+const light2 = new DirectionalLight(new Vector3(1, 1, 1), 0.8);
+light2.position.set(-5, 10, -5);
+light2.castShadow = true;
+light2.lookAt(new Vector3(0, 0, 0));
+scene.add(light2);
 
 // Create eight different materials
 const orangeMaterial = new LambertMaterial({ color: new Vector3(1.0, 0.5, 0.2) });
@@ -182,6 +190,14 @@ lightFolder.add(light, "intensity", 0, 2).name("Intensity");
 lightFolder.add(light.shadow, "bias", 0, 0.01).name("Shadow Bias");
 lightFolder.open();
 
+const light2Folder = gui.addFolder("Light 2");
+light2Folder.add(light2.position, "x", -10, 10).name("Light X");
+light2Folder.add(light2.position, "y", -10, 10).name("Light Y");
+light2Folder.add(light2.position, "z", -10, 10).name("Light Z");
+light2Folder.add(light2, "intensity", 0, 2).name("Intensity");
+light2Folder.add(light2.shadow, "bias", 0, 0.01).name("Shadow Bias");
+light2Folder.open();
+
 const ambientFolder = gui.addFolder("Ambient Light");
 const ambientConfig = { intensity: 0.2 };
 ambientFolder.add(ambientConfig, "intensity", 0, 1).name("Intensity").onChange((v: number) => {
@@ -209,6 +225,7 @@ function frame() {
     
     // Update light direction based on position (looking at 0,0,0)
     light.lookAt(new Vector3(0, 0, 0));
+    light2.lookAt(new Vector3(0, 0, 0));
     
     // Animate box
     box.rotation.setFromEuler(new Euler(0, performance.now() / 1000, 0));
