@@ -97,6 +97,13 @@ sphere.castShadow = true;
 sphere.receiveShadow = true;
 scene.add(sphere);
 
+const sphere2 = new Mesh(sphereGeometry, greenMaterial);
+sphere2.position.set(-2, -1, 0);
+sphere2.scale.set(0.5, 0.5, 0.5);
+sphere2.castShadow = true;
+sphere2.receiveShadow = true;
+scene.add(sphere2);
+
 // Plane
 const planeGeometry = new PlaneGeometry({
     width: 20,

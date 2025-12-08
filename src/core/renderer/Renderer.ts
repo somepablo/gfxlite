@@ -1,10 +1,10 @@
 import type { Camera } from "../camera/Camera";
 import type { Scene } from "../scene/Scene";
-import { ResourceManager } from "./ResourceManager";
 import { LightingManager } from "./LightingManager";
 import { MainRenderPhase } from "./MainRenderPhase";
 import { ShadowRenderPhase } from "./ShadowRenderPhase";
-import { IndirectDrawManager } from "./IndirectDrawManager";
+import { CullingComputePhase } from "./CullingComputePhase";
+import { BatchManager } from "./BatchManager";
 
 export const ShadowType = {
     Basic: 0,
@@ -32,11 +32,11 @@ export class Renderer {
     private isInitialized = false;
     private initializationPromise: Promise<void>;
 
-    private resourceManager!: ResourceManager;
     private lightingManager!: LightingManager;
-    private indirectDrawManager!: IndirectDrawManager;
+    private batchManager!: BatchManager;
     private mainPhase!: MainRenderPhase;
     private shadowPhase!: ShadowRenderPhase;
+    private cullingPhase!: CullingComputePhase;
 
     private depthTexture!: GPUTexture;
     private depthTextureView!: GPUTextureView;
@@ -114,28 +114,40 @@ export class Renderer {
             magFilter: "linear",
         });
 
-        this.resourceManager = new ResourceManager(this.device, this.sampleCount);
+
         this.lightingManager = new LightingManager(
             this.device,
             this.dummyShadowMap,
             this.dummyShadowSampler
         );
-        this.indirectDrawManager = new IndirectDrawManager(this.device);
-        
-        this.mainPhase = new MainRenderPhase(
-            this.device,
-            this.resourceManager,
-            this.lightingManager,
-            this.context,
-            this.depthTextureView,
-            this.msaaTextureView,
-            this.sampleCount
+        this.batchManager = new BatchManager(this.device);
+
+        this.cullingPhase = new CullingComputePhase(this.device);
+
+        // Share culling layouts
+        this.batchManager.setCullingLayouts(
+            this.cullingPhase.cameraBindGroupLayout!,
+            this.cullingPhase.mainCullBindGroupLayout!
         );
 
         this.shadowPhase = new ShadowRenderPhase(
             this.device,
-            this.resourceManager,
-            this.lightingManager
+            this.lightingManager,
+            this.batchManager
+        );
+        this.shadowPhase.setCullingLayouts(
+            this.cullingPhase.cameraBindGroupLayout!,
+            this.cullingPhase.shadowCullBindGroupLayout!
+        );
+
+        this.mainPhase = new MainRenderPhase(
+            this.device,
+            this.lightingManager,
+            this.batchManager,
+            this.context,
+            this.depthTextureView,
+            this.msaaTextureView,
+            this.sampleCount
         );
 
         console.log("GFXLite Renderer Initialized");
@@ -168,8 +180,8 @@ export class Renderer {
             if (this.mainPhase) {
                 this.mainPhase = new MainRenderPhase(
                     this.device,
-                    this.resourceManager,
                     this.lightingManager,
+                    this.batchManager,
                     this.context,
                     this.depthTextureView,
                     this.msaaTextureView,
@@ -205,24 +217,30 @@ export class Renderer {
         if (this.debug) {
             this.debugInfo.render.calls = 0;
             this.debugInfo.render.triangles = 0;
-            this.debugInfo.memory = this.resourceManager.getStats();
         }
 
         scene.updateWorldMatrix();
         camera.updateWorldMatrix();
 
-        const lights = this.lightingManager.collectLights(scene);        
+        const lights = this.lightingManager.collectLights(scene);     
+        this.lightingManager.updateLightingBuffer(scene, lights, this.shadowType, this.shadowsEnabled);   
+
+        this.cullingPhase.clear();
 
         this.shadowPhase.setEnabled(this.shadowsEnabled);
         this.shadowPhase.setLights(lights);
         this.shadowPhase.prepare(scene, camera);
         
-        this.lightingManager.updateLightingBuffer(scene, lights, this.shadowType, this.shadowsEnabled);
-        
         this.mainPhase.prepare(scene, camera);
+
+        // Register culling tasks
+        this.shadowPhase.registerCullingPasses(this.cullingPhase);
+        this.mainPhase.registerCullingPasses(this.cullingPhase);
         
         const commandEncoder = this.device.createCommandEncoder();
         
+        // Execute unified culling
+        this.cullingPhase.execute(commandEncoder);
         this.shadowPhase.execute(commandEncoder);
         this.mainPhase.execute(commandEncoder);
         
@@ -235,11 +253,10 @@ export class Renderer {
     }
 
     public dispose() {
-        this.resourceManager?.dispose();
         this.lightingManager?.dispose();
-        this.indirectDrawManager?.dispose();
+        this.batchManager?.dispose();
         this.shadowPhase?.dispose?.();
-        
+
         if (this.depthTexture) this.depthTexture.destroy();
         if (this.msaaTexture) this.msaaTexture.destroy();
     }

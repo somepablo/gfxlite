@@ -4,6 +4,19 @@
 
 > Currently in development and is not yet ready for production use.
 
+## Architecture
+
+`gfxlite` implements a modern, GPU-driven rendering pipeline designed for high performance and efficiency.
+
+While the API is heavily influenced by **Three.js** for ease of use, the internals are built from the ground up for **WebGPU**. It adopts modern render strategies from high-performance frameworks like **Bevy**, prioritizing GPU-driven techniques over traditional CPU-heavy approaches.
+
+### Rendering Pipeline
+
+- **Unified Instance Storage**: Uses monolithic Storage Buffers to store instance data (transforms, colors, etc.) for all objects, avoiding the overhead of multiple small uniform buffers.
+- **Automatic Batching**: The `BatchManager` automatically groups compatible meshes (same geometry and material) to maximize instance counts per draw call.
+- **Indirect Drawing**: leverages `drawIndexedIndirect` to heavily reduce CPU-side render loop overhead. The CPU prepares batch data once, and the GPU handles the rest.
+- **GPU Frustum Culling**: A Compute Shader pass pre-calculates visibility for all instances in parallel before rendering. Only visible objects are added to the indirect draw buffer, significantly reducing vertex shading load.
+
 ## Installation
 
 To install the dependencies, run:

@@ -188,6 +188,19 @@ export class LightingManager {
         return lightingBindGroup!;
     }
 
+    // Getters for external access (used by MainRenderPhase)
+    getLightingBuffer(): GPUBuffer | null {
+        return this.lightingBuffer;
+    }
+
+    getDummyShadowMap(): GPUTextureView {
+        return this.dummyShadowMap;
+    }
+
+    getShadowSampler(): GPUSampler {
+        return this.dummyShadowSampler;
+    }
+
     dispose(): void {
         if (this.lightingBuffer) {
             this.lightingBuffer.destroy();

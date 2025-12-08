@@ -8,10 +8,15 @@ export interface ProgramOptions {
         entryPoint?: string;
     };
     multisample?: GPUMultisampleState;
+    // For indirect rendering with explicit bind group layouts
+    bindGroupLayouts?: GPUBindGroupLayout[];
+    // Whether to use position-only vertex buffer (no normals)
+    positionOnly?: boolean;
 }
 
 export class Program {
     public pipeline: GPURenderPipeline;
+    public bindGroupLayouts: GPUBindGroupLayout[] | null = null;
 
     constructor(device: GPUDevice, options: ProgramOptions) {
         const vertexModule = device.createShaderModule({
@@ -24,13 +29,22 @@ export class Program {
             code: options.fragment.code,
         });
 
-        this.pipeline = device.createRenderPipeline({
-            label: "Render Pipeline",
-            layout: "auto", // Let WebGPU infer the layout from shaders
-            vertex: {
-                module: vertexModule,
-                entryPoint: options.vertex.entryPoint || "main",
-                buffers: [
+        // Determine vertex buffer layout based on options
+        const vertexBuffers: GPUVertexBufferLayout[] = options.positionOnly
+            ? [
+                // Position buffer only
+                {
+                    arrayStride: 3 * 4,
+                    attributes: [
+                        {
+                            shaderLocation: 0,
+                            offset: 0,
+                            format: "float32x3",
+                        },
+                    ],
+                },
+            ]
+            : [
                 // Position buffer
                 {
                     arrayStride: 3 * 4,
@@ -53,7 +67,25 @@ export class Program {
                         },
                     ],
                 },
-                ],
+            ];
+
+        // Determine pipeline layout
+        let layout: GPUPipelineLayout | "auto" = "auto";
+        if (options.bindGroupLayouts) {
+            this.bindGroupLayouts = options.bindGroupLayouts;
+            layout = device.createPipelineLayout({
+                label: "Explicit Pipeline Layout",
+                bindGroupLayouts: options.bindGroupLayouts,
+            });
+        }
+
+        this.pipeline = device.createRenderPipeline({
+            label: "Render Pipeline",
+            layout,
+            vertex: {
+                module: vertexModule,
+                entryPoint: options.vertex.entryPoint || "main",
+                buffers: vertexBuffers,
             },
             fragment: {
                 module: fragmentModule,

@@ -1,50 +1,177 @@
 import { RenderPhase } from "./RenderPhase";
-import { ResourceManager } from "./ResourceManager";
 import type { Scene } from "../scene/Scene";
 import type { Camera } from "../camera/Camera";
 import { Mesh } from "../object/Mesh";
 import { Matrix4 } from "../../math";
 import { PhongMaterial } from "../material/PhongMaterial";
 import { LambertMaterial } from "../material/LambertMaterial";
+import { BasicMaterial } from "../material/BasicMaterial";
 import type { LightingManager } from "./LightingManager";
+import type { BatchManager, DrawBatch } from "./BatchManager";
+import { CullingComputePhase } from "./CullingComputePhase";
+import type { Material } from "../material/Material";
+import { Program } from "./Program";
+
+
+interface IndirectPipelineData {
+    program: Program;
+    lightingBindGroup: GPUBindGroup | null;
+}
 
 export class MainRenderPhase extends RenderPhase {
-
-    private resourceManager: ResourceManager;
     private lightingManager: LightingManager;
+    private batchManager: BatchManager;
     private context: GPUCanvasContext;
     private depthTextureView: GPUTextureView;
     private msaaTextureView: GPUTextureView | null;
     private sampleCount: number;
-    
+
     private renderList: Mesh[] = [];
+    private batches: DrawBatch[] = [];
     private viewProjectionMatrix: Matrix4 = new Matrix4();
     private camera: Camera | null = null;
 
-    private _tempMatrix = new Matrix4();
-    private _tempMatrix2 = new Matrix4();
-    
+    // Indirect pipeline cache by material constructor name
+    private indirectPipelineCache = new Map<string, IndirectPipelineData>();
+
+    // Bind group layouts for indirect rendering
+    private materialBindGroupLayout: GPUBindGroupLayout | null = null;
+    private lightingBindGroupLayout: GPUBindGroupLayout | null = null;
+
     public debugInfo = {
         calls: 0,
         triangles: 0,
+        batches: 0,
+        culledInstances: 0,
     };
 
     constructor(
         device: GPUDevice,
-        resourceManager: ResourceManager,
         lightingManager: LightingManager,
+        batchManager: BatchManager,
         context: GPUCanvasContext,
         depthTextureView: GPUTextureView,
         msaaTextureView: GPUTextureView | null,
         sampleCount: number
     ) {
         super(device, "Main Render Phase");
-        this.resourceManager = resourceManager;
         this.lightingManager = lightingManager;
+        this.batchManager = batchManager;
         this.context = context;
         this.depthTextureView = depthTextureView;
         this.msaaTextureView = msaaTextureView;
         this.sampleCount = sampleCount;
+
+        this.initBindGroupLayouts();
+    }
+
+    private initBindGroupLayouts(): void {
+        // Material bind group layout (group 1)
+        this.materialBindGroupLayout = this.device.createBindGroupLayout({
+            label: "Material Bind Group Layout",
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: { type: "uniform" },
+                },
+            ],
+        });
+
+        // Lighting bind group layout (group 2)
+        this.lightingBindGroupLayout = this.device.createBindGroupLayout({
+            label: "Lighting Bind Group Layout",
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: { type: "uniform" },
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: "depth",
+                        viewDimension: "2d-array",
+                    },
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: { type: "comparison" },
+                },
+            ],
+        });
+    }
+
+    private getIndirectPipeline(material: Material): IndirectPipelineData {
+        const materialType = material.constructor.name;
+
+        let pipelineData = this.indirectPipelineCache.get(materialType);
+        if (pipelineData) {
+            return pipelineData;
+        }
+
+        const needsLighting =
+            material instanceof PhongMaterial ||
+            material instanceof LambertMaterial;
+
+        // Build bind group layouts array
+        const bindGroupLayouts: GPUBindGroupLayout[] = [
+            this.batchManager.getRenderBindGroupLayout(), // Group 0: instances + culled
+            this.materialBindGroupLayout!, // Group 1: material
+        ];
+
+        if (needsLighting) {
+            bindGroupLayouts.push(this.lightingBindGroupLayout!); // Group 2: lighting
+        }
+
+        // Create the program
+        const program = new Program(this.device, {
+            vertex: { code: material.getVertexShader() },
+            fragment: { code: material.getFragmentShader() },
+            multisample: { count: this.sampleCount },
+            bindGroupLayouts,
+            positionOnly: material instanceof BasicMaterial,
+        });
+
+        // Create lighting bind group if needed
+        let lightingBindGroup: GPUBindGroup | null = null;
+        if (needsLighting) {
+            lightingBindGroup = this.createLightingBindGroup();
+        }
+
+        pipelineData = { program, lightingBindGroup };
+        this.indirectPipelineCache.set(materialType, pipelineData);
+
+        return pipelineData;
+    }
+
+    private createLightingBindGroup(): GPUBindGroup {
+        const lightingBuffer = this.lightingManager.getLightingBuffer()!;
+        const shadowMapView =
+            this.lightingManager.shadowMapArrayView ||
+            this.lightingManager.getDummyShadowMap();
+        const shadowSampler = this.lightingManager.getShadowSampler();
+
+        return this.device.createBindGroup({
+            label: "Indirect Lighting Bind Group",
+            layout: this.lightingBindGroupLayout!,
+            entries: [
+                { binding: 0, resource: { buffer: lightingBuffer } },
+                { binding: 1, resource: shadowMapView },
+                { binding: 2, resource: shadowSampler },
+            ],
+        });
+    }
+
+    invalidateLightingBindGroups(): void {
+        // Called when shadow map is recreated
+        for (const [, data] of this.indirectPipelineCache) {
+            if (data.lightingBindGroup) {
+                data.lightingBindGroup = this.createLightingBindGroup();
+            }
+        }
     }
 
     prepare(scene: Scene, camera: Camera): void {
@@ -52,24 +179,66 @@ export class MainRenderPhase extends RenderPhase {
         this.renderList = [];
         this.debugInfo.calls = 0;
         this.debugInfo.triangles = 0;
+        this.debugInfo.batches = 0;
 
+        // Collect meshes
         scene.traverse((object) => {
             if (object instanceof Mesh) {
                 this.renderList.push(object);
             }
         });
 
+        // Compute view-projection
         this.viewProjectionMatrix.multiplyMatrices(
             camera.projectionMatrix,
             camera.viewMatrix
         );
+
+        // Prepare batches and update instance buffer
+        this.batches = this.batchManager.prepareBatches(this.renderList);
+        this.batchManager.updateInstanceBuffer(
+            this.batches,
+            camera,
+            this.viewProjectionMatrix
+        );
+
+        // Update camera uniforms for culling
+        this.batchManager.updateCameraUniforms(camera, this.viewProjectionMatrix);
+
+        this.debugInfo.batches = this.batches.length;
     }
 
     execute(commandEncoder: GPUCommandEncoder): void {
-        if (this.renderList.length === 0 || !this.camera) return;
+        if (this.batches.length === 0 || !this.camera) return;
 
+        // Phase 1: GPU Frustum Culling
+        // Phase 2: Indirect Rendering
+        this.executeRenderPass(commandEncoder);
+    }
+
+    registerCullingPasses(cullingPhase: CullingComputePhase): void {
+        const batches = this.batchManager.getBatches();
+        const cameraBindGroup = this.batchManager.getCameraBindGroup();
+
+        if (!cameraBindGroup) return;
+
+        for (const batch of batches) {
+            const cullBindGroup = this.batchManager.getCullBindGroup(batch);
+            if (!cullBindGroup) continue;
+
+            cullingPhase.addCullPass(
+                "main",
+                batch,
+                cameraBindGroup,
+                cullBindGroup,
+                batch.indirectBuffer
+            );
+        }
+    }
+
+    private executeRenderPass(commandEncoder: GPUCommandEncoder): void {
         const textureView = this.context.getCurrentTexture().createView();
-        
+
         const colorAttachment: GPURenderPassColorAttachment = {
             view: this.sampleCount > 1 ? this.msaaTextureView! : textureView,
             clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
@@ -82,7 +251,7 @@ export class MainRenderPhase extends RenderPhase {
         }
 
         const passEncoder = commandEncoder.beginRenderPass({
-            label: "Main Render Pass",
+            label: "Main Render Pass (Indirect)",
             colorAttachments: [colorAttachment],
             depthStencilAttachment: {
                 view: this.depthTextureView,
@@ -92,67 +261,103 @@ export class MainRenderPhase extends RenderPhase {
             },
         });
 
-        for (const mesh of this.renderList) {
-            this.renderMesh(passEncoder, mesh);
+        let currentPipeline: GPURenderPipeline | null = null;
+        let currentMaterialType: string | null = null;
+
+        for (const batch of this.batches) {
+            const materialType = batch.material.constructor.name;
+            const pipelineData = this.getIndirectPipeline(batch.material);
+            const geometryData = this.batchManager.getGeometryData(batch.geometry);
+
+            // Set pipeline if changed
+            if (materialType !== currentMaterialType) {
+                currentMaterialType = materialType;
+                currentPipeline = pipelineData.program.pipeline;
+                passEncoder.setPipeline(currentPipeline);
+
+                // Set lighting bind group (group 2) if needed
+                if (pipelineData.lightingBindGroup) {
+                    passEncoder.setBindGroup(2, pipelineData.lightingBindGroup);
+                }
+            }
+
+            // Set instance bind group (group 0)
+            const renderBindGroup = this.batchManager.getRenderBindGroup(batch);
+            passEncoder.setBindGroup(0, renderBindGroup);
+
+            // Set material bind group (group 1)
+            const materialBindGroup = this.getMaterialBindGroup(
+                batch.material,
+                pipelineData.program
+            );
+            passEncoder.setBindGroup(1, materialBindGroup);
+
+            // Set vertex buffers
+            passEncoder.setVertexBuffer(0, geometryData.vertexBuffer);
+            if (geometryData.normalBuffer && !(batch.material instanceof BasicMaterial)) {
+                passEncoder.setVertexBuffer(1, geometryData.normalBuffer);
+            }
+
+            // Draw
+            if (geometryData.indexBuffer) {
+                passEncoder.setIndexBuffer(geometryData.indexBuffer, "uint32");
+                passEncoder.drawIndexedIndirect(batch.indirectBuffer, 0);
+            } else {
+                passEncoder.drawIndirect(batch.indirectBuffer, 0);
+            }
+
+            this.debugInfo.calls++;
+            this.debugInfo.triangles +=
+                (batch.geometry.indexCount / 3) * batch.instanceCount;
         }
 
         passEncoder.end();
     }
 
-    private renderMesh(passEncoder: GPURenderPassEncoder, mesh: Mesh): void {
-        const materialData = this.resourceManager.getMaterialData(mesh.material);
-        const geometryData = this.resourceManager.getGeometryData(mesh.geometry);
-        const program = materialData.program;
-        const meshData = this.resourceManager.getMeshData(mesh, program.pipeline);
+    private materialBindGroupCache = new Map<number, GPUBindGroup>();
+    private materialBufferCache = new Map<number, GPUBuffer>();
 
-        this.resourceManager.updateMaterialUniforms(mesh.material);
-        passEncoder.setPipeline(program.pipeline);
+    private getMaterialBindGroup(
+        material: Material,
+        _program: Program
+    ): GPUBindGroup {
+        let bindGroup = this.materialBindGroupCache.get(material.id);
 
-        const mvpMatrix = this._tempMatrix.multiplyMatrices(
-            this.viewProjectionMatrix,
-            mesh.worldMatrix
-        );
-        
-        const modelMatrix = mesh.worldMatrix;
-        const normalMatrix = this._tempMatrix2
-            .copy(modelMatrix)
-            .invert()
-            .transpose();
-
-        const uniformData = new Float32Array(52);
-        uniformData.set(mvpMatrix.toArray(), 0);
-        uniformData.set(modelMatrix.toArray(), 16);
-        uniformData.set(normalMatrix.toArray(), 32);
-        uniformData.set(this.camera!.position.toArray(), 48);
-        uniformData[51] = mesh.receiveShadow ? 1.0 : 0.0;
-
-        this.device.queue.writeBuffer(meshData.uniformBuffer, 0, uniformData);
-
-        passEncoder.setBindGroup(0, meshData.bindGroup);
-        passEncoder.setBindGroup(1, materialData.bindGroup);
-
-        if ((mesh.material instanceof PhongMaterial || mesh.material instanceof LambertMaterial)) {
-            const lightingBindGroup = this.lightingManager.getLightingBindGroup(
-                program.pipeline
-            );
-
-            if (lightingBindGroup) {
-                passEncoder.setBindGroup(2, lightingBindGroup);
+        if (!bindGroup || material.needsUpdate) {
+            // Destroy old buffer if exists to prevent memory leak
+            const oldBuffer = this.materialBufferCache.get(material.id);
+            if (oldBuffer) {
+                oldBuffer.destroy();
             }
+
+            const uniformData = material.getUniformBufferData();
+            const uniformBuffer = this.device.createBuffer({
+                label: `Material Uniform Buffer ${material.id}`,
+                size: Math.max(uniformData.byteLength, 16), // Minimum 16 bytes
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            this.device.queue.writeBuffer(uniformBuffer, 0, uniformData as GPUAllowSharedBufferSource);
+
+            bindGroup = this.device.createBindGroup({
+                label: `Material Bind Group ${material.id}`,
+                layout: this.materialBindGroupLayout!,
+                entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+            });
+
+            this.materialBufferCache.set(material.id, uniformBuffer);
+            this.materialBindGroupCache.set(material.id, bindGroup);
+            material.needsUpdate = false;
         }
 
-        passEncoder.setVertexBuffer(0, geometryData.vertexBuffer);
-        if (geometryData.normalBuffer) {
-            passEncoder.setVertexBuffer(1, geometryData.normalBuffer);
-        }
+        return bindGroup;
+    }
 
-        if (geometryData.indexBuffer) {
-            passEncoder.setIndexBuffer(geometryData.indexBuffer, "uint32");
-            passEncoder.drawIndexed(mesh.geometry.indexCount);
-        } else {
-            passEncoder.draw(mesh.geometry.indexCount);
+    dispose(): void {
+        // Clean up material buffers
+        for (const buffer of this.materialBufferCache.values()) {
+            buffer.destroy();
         }
-        this.debugInfo.triangles += mesh.geometry.indexCount / 3;
-        this.debugInfo.calls++;
+        this.materialBufferCache.clear();
+        this.materialBindGroupCache.clear();
     }
 }
