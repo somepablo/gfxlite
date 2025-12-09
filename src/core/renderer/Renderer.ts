@@ -5,6 +5,7 @@ import { MainRenderPhase } from "./MainRenderPhase";
 import { ShadowRenderPhase } from "./ShadowRenderPhase";
 import { CullingComputePhase } from "./CullingComputePhase";
 import { BatchManager } from "./BatchManager";
+import { DirectionalLight } from "../light/DirectionalLight";
 
 export const ShadowType = {
     Basic: 0,
@@ -114,32 +115,27 @@ export class Renderer {
             magFilter: "linear",
         });
 
-
         this.lightingManager = new LightingManager(
             this.device,
             this.dummyShadowMap,
             this.dummyShadowSampler
         );
+
+        // Create batch manager (now handles unified camera buffer)
         this.batchManager = new BatchManager(this.device);
 
+        // Create culling phase and link to batch manager
         this.cullingPhase = new CullingComputePhase(this.device);
+        this.cullingPhase.setBatchManager(this.batchManager);
 
-        // Share culling layouts
-        this.batchManager.setCullingLayouts(
-            this.cullingPhase.cameraBindGroupLayout!,
-            this.cullingPhase.mainCullBindGroupLayout!
-        );
-
+        // Create shadow phase
         this.shadowPhase = new ShadowRenderPhase(
             this.device,
             this.lightingManager,
             this.batchManager
         );
-        this.shadowPhase.setCullingLayouts(
-            this.cullingPhase.cameraBindGroupLayout!,
-            this.cullingPhase.shadowCullBindGroupLayout!
-        );
 
+        // Create main render phase
         this.mainPhase = new MainRenderPhase(
             this.device,
             this.lightingManager,
@@ -174,9 +170,9 @@ export class Renderer {
         if (this.device) {
             if (this.depthTexture) this.depthTexture.destroy();
             if (this.msaaTexture) this.msaaTexture.destroy();
-            
+
             this.createFrameResources();
-            
+
             if (this.mainPhase) {
                 this.mainPhase = new MainRenderPhase(
                     this.device,
@@ -219,31 +215,49 @@ export class Renderer {
             this.debugInfo.render.triangles = 0;
         }
 
+        // Update world matrices
         scene.updateWorldMatrix();
         camera.updateWorldMatrix();
 
-        const lights = this.lightingManager.collectLights(scene);     
-        this.lightingManager.updateLightingBuffer(scene, lights, this.shadowType, this.shadowsEnabled);   
+        // Collect lights and update lighting buffer
+        const lights = this.lightingManager.collectLights(scene);
+        this.lightingManager.updateLightingBuffer(scene, lights, this.shadowType, this.shadowsEnabled);
 
-        this.cullingPhase.clear();
+        // Filter shadow-casting lights
+        const shadowLights = this.shadowsEnabled
+            ? lights.filter((l): l is DirectionalLight => l instanceof DirectionalLight && l.castShadow)
+            : [];
 
+        // Configure shadow phase
         this.shadowPhase.setEnabled(this.shadowsEnabled);
         this.shadowPhase.setLights(lights);
-        this.shadowPhase.prepare(scene, camera);
-        
+
+        // Prepare main phase (creates batches)
         this.mainPhase.prepare(scene, camera);
 
-        // Register culling tasks
-        this.shadowPhase.registerCullingPasses(this.cullingPhase);
-        this.mainPhase.registerCullingPasses(this.cullingPhase);
-        
+        // Update unified instance buffer
+        const batches = this.batchManager.getBatches();
+        this.batchManager.updateInstanceBuffer(batches);
+
+        // Prepare shadow phase (uses same batches, updates shadow camera bounds)
+        this.shadowPhase.prepare(scene, camera);
+
+        // Update unified camera buffer with main camera + all shadow light cameras
+        this.batchManager.updateCameraUniforms(camera, shadowLights);
+
+        // Create command encoder
         const commandEncoder = this.device.createCommandEncoder();
-        
-        // Execute unified culling
+
+        // Execute unified culling (single pass for all cameras)
         this.cullingPhase.execute(commandEncoder);
+
+        // Execute shadow rendering
         this.shadowPhase.execute(commandEncoder);
+
+        // Execute main rendering
         this.mainPhase.execute(commandEncoder);
-        
+
+        // Submit
         this.device.queue.submit([commandEncoder.finish()]);
 
         if (this.debug) {
@@ -256,6 +270,7 @@ export class Renderer {
         this.lightingManager?.dispose();
         this.batchManager?.dispose();
         this.shadowPhase?.dispose?.();
+        this.mainPhase?.dispose?.();
 
         if (this.depthTexture) this.depthTexture.destroy();
         if (this.msaaTexture) this.msaaTexture.destroy();

@@ -36,5 +36,6 @@ export class OrthographicCamera extends Camera {
             this.near,
             this.far,
         );
+        super.updateProjectionMatrix();
     }
 }

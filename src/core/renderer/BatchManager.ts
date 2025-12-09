@@ -2,11 +2,15 @@ import type { Mesh } from "../object/Mesh";
 import type { Camera } from "../camera/Camera";
 import type { Geometry } from "../geometry/Geometry";
 import type { Material } from "../material/Material";
+import type { DirectionalLight } from "../light/DirectionalLight";
 import { Matrix4 } from "../../math";
 
 // Constants
-const INSTANCE_STRIDE = 52; // 52 floats per instance (MVP + Model + Normal + CameraPosFlags)
+// Layout: Model (16) + Normal (16) + Flags (4) = 36 floats per instance
+const INSTANCE_STRIDE = 36;
 const MIN_BUFFER_SIZE = 1024 * 1024; // 1MB minimum allocation
+const MAX_CAMERAS = 5; // 1 main + 4 shadow lights
+const STORAGE_BUFFER_ALIGNMENT = 256; // WebGPU requires 256-byte alignment for buffer offsets
 
 export interface DrawBatch {
     key: string;
@@ -17,10 +21,17 @@ export interface DrawBatch {
     instanceCount: number;
     boundingSphereRadius: number;
 
-    // GPU resources
-    indirectBuffer: GPUBuffer;
-    culledInstanceBuffer: GPUBuffer;
+    // Aligned stride for culled buffer (256-byte aligned)
+    culledStridePerCamera: number;
+
+    // GPU resources (shared across all cameras)
     batchInfoBuffer: GPUBuffer;
+
+    // Per-camera culling outputs
+    indirectBuffer: GPUBuffer;      // Array of 5 indirect args (main + 4 lights)
+    culledInstanceBuffer: GPUBuffer; // Segmented: [main region | light0 | light1 | ...]
+
+    // Bind groups
     renderBindGroup: GPUBindGroup | null;
     cullBindGroup: GPUBindGroup | null;
 }
@@ -37,9 +48,6 @@ export interface GeometryData {
     normalBuffer: GPUBuffer | null;
     indexBuffer: GPUBuffer | null;
 }
-
-// Culling compute shader
-
 
 export class BatchManager {
     private device: GPUDevice;
@@ -61,42 +69,80 @@ export class BatchManager {
     private batches: DrawBatch[] = [];
     private totalInstances: number = 0;
 
-    // Culling pipeline resources - managed externally
-    private cameraBindGroupLayout: GPUBindGroupLayout | null = null;
-    private cullBindGroupLayout: GPUBindGroupLayout | null = null;
-    private cameraUniformBuffer: GPUBuffer | null = null;
+    // Unified camera buffer (main + shadow lights)
+    private cameraBuffer: GPUBuffer | null = null;
     private cameraBindGroup: GPUBindGroup | null = null;
+    private cameraBindGroupLayout: GPUBindGroupLayout | null = null;
+
+    // Culling bind group layout
+    private cullBindGroupLayout: GPUBindGroupLayout | null = null;
 
     // Render bind group layout
     private renderBindGroupLayout: GPUBindGroupLayout | null = null;
 
-    // Temp matrices for computation
+    // Temp matrix for normal matrix computation
     private _tempMatrix = new Matrix4();
-    private _tempMatrix2 = new Matrix4();
 
-    // Reusable buffer for batch info to avoid per-frame allocations
+    // Reusable buffer for batch info (16 bytes)
+    // Layout: instanceOffset (u32), instanceCount (u32), boundingSphereRadius (f32), culledStridePerCamera (u32)
     private _batchInfoBuffer = new ArrayBuffer(16);
-    private _batchInfoU32 = new Uint32Array(this._batchInfoBuffer, 0, 2);
-    private _batchInfoF32 = new Float32Array(this._batchInfoBuffer, 8, 2);
+    private _batchInfoU32 = new Uint32Array(this._batchInfoBuffer);
+    private _batchInfoF32 = new Float32Array(this._batchInfoBuffer);
 
-    // Reusable buffer for camera uniforms (40 floats = 160 bytes)
-    private _cameraUniformData = new Float32Array(40);
+    // Reusable buffer for camera uniforms
+    // Layout per camera: VP (16) + frustum (24) = 40 floats
+    // Total: 40 * 5 cameras + header (4 floats for counts) = 204 floats, round to 208
+    private _cameraUniformData = new Float32Array(208);
+
+    // Track active shadow lights for current frame
+    private activeShadowLightCount: number = 0;
 
     constructor(device: GPUDevice) {
         this.device = device;
-        this.initRenderBindGroupLayout();
-    }
-
-    setCullingLayouts(
-        cameraLayout: GPUBindGroupLayout,
-        cullLayout: GPUBindGroupLayout
-    ): void {
-        this.cameraBindGroupLayout = cameraLayout;
-        this.cullBindGroupLayout = cullLayout;
+        this.initBindGroupLayouts();
         this.initCameraResources();
     }
 
-    private initRenderBindGroupLayout(): void {
+    private initBindGroupLayouts(): void {
+        // Camera bind group layout (group 0 for culling)
+        this.cameraBindGroupLayout = this.device.createBindGroupLayout({
+            label: "Unified Camera Bind Group Layout",
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX,
+                    buffer: { type: "uniform" },
+                },
+            ],
+        });
+
+        // Culling bind group layout (group 1 for culling)
+        this.cullBindGroupLayout = this.device.createBindGroupLayout({
+            label: "Unified Cull Bind Group Layout",
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "read-only-storage" }, // instances
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" }, // culled instances (segmented)
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" }, // indirect args array
+                },
+                {
+                    binding: 3,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "uniform" }, // batch info
+                },
+            ],
+        });
+
         // Render bind group layout (group 0 for render pass)
         this.renderBindGroupLayout = this.device.createBindGroupLayout({
             label: "Instance Render Bind Group Layout",
@@ -104,45 +150,64 @@ export class BatchManager {
                 {
                     binding: 0,
                     visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" },
+                    buffer: { type: "read-only-storage" }, // instances
                 },
                 {
                     binding: 1,
                     visibility: GPUShaderStage.VERTEX,
-                    buffer: { type: "read-only-storage" },
+                    buffer: { type: "read-only-storage" }, // culled indices
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: { type: "uniform" }, // camera uniforms (for VP matrix)
                 },
             ],
         });
     }
 
     private initCameraResources(): void {
-        if (this.cameraUniformBuffer) return;
-
-        // Create camera uniform buffer
-        // Layout: viewProjection (16 floats) + frustum (24 floats) = 40 floats = 160 bytes
-        this.cameraUniformBuffer = this.device.createBuffer({
-            label: "Camera Uniform Buffer",
-            size: 160,
+        // Create unified camera buffer
+        // Header: mainVP(16) + activeLightCount(1) + padding(3) = 20 floats
+        // Per camera: VP(16) + frustum(24) = 40 floats
+        // Total: 20 + 40*5 = 220 floats = 880 bytes, round to 896 for alignment
+        this.cameraBuffer = this.device.createBuffer({
+            label: "Unified Camera Buffer",
+            size: 896,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
         this.cameraBindGroup = this.device.createBindGroup({
-            label: "Camera Bind Group",
+            label: "Unified Camera Bind Group",
             layout: this.cameraBindGroupLayout!,
             entries: [
-                { binding: 0, resource: { buffer: this.cameraUniformBuffer } },
+                { binding: 0, resource: { buffer: this.cameraBuffer } },
             ],
         });
+    }
+
+    getCameraBindGroupLayout(): GPUBindGroupLayout {
+        return this.cameraBindGroupLayout!;
+    }
+
+    getCullBindGroupLayout(): GPUBindGroupLayout {
+        return this.cullBindGroupLayout!;
     }
 
     getRenderBindGroupLayout(): GPUBindGroupLayout {
         return this.renderBindGroupLayout!;
     }
 
-
-
     getCameraBindGroup(): GPUBindGroup | null {
         return this.cameraBindGroup;
+    }
+
+    getCameraBuffer(): GPUBuffer | null {
+        return this.cameraBuffer;
+    }
+
+    getActiveShadowLightCount(): number {
+        return this.activeShadowLightCount;
     }
 
     getGeometryData(geometry: Geometry): GeometryData {
@@ -198,7 +263,6 @@ export class BatchManager {
         const bbox = geometry.boundingBox;
         if (!bbox) return 1.0;
 
-        // Compute radius from center to corner
         const dx = bbox.max.x - bbox.min.x;
         const dy = bbox.max.y - bbox.min.y;
         const dz = bbox.max.z - bbox.min.z;
@@ -255,10 +319,10 @@ export class BatchManager {
         const indexCount = geometry.indexCount;
         const boundingSphereRadius = this.computeBoundingSphereRadius(geometry);
 
-        // Create indirect args buffer (5 x u32 = 20 bytes)
+        // Create indirect args buffer (5 cameras × 5 u32 = 100 bytes)
         const indirectBuffer = this.device.createBuffer({
             label: `Indirect Args Buffer [${key}]`,
-            size: 20,
+            size: 20 * MAX_CAMERAS,
             usage:
                 GPUBufferUsage.INDIRECT |
                 GPUBufferUsage.STORAGE |
@@ -266,26 +330,33 @@ export class BatchManager {
             mappedAtCreation: true,
         });
 
-        // Initialize indirect args
+        // Initialize indirect args for all cameras
         const indirectArgs = new Uint32Array(indirectBuffer.getMappedRange());
-        indirectArgs[0] = indexCount; // indexCount
-        indirectArgs[1] = 0; // instanceCount (will be written by compute)
-        indirectArgs[2] = 0; // firstIndex
-        indirectArgs[3] = 0; // baseVertex
-        indirectArgs[4] = 0; // firstInstance
+        for (let i = 0; i < MAX_CAMERAS; i++) {
+            const offset = i * 5;
+            indirectArgs[offset + 0] = indexCount; // indexCount
+            indirectArgs[offset + 1] = 0;          // instanceCount (written by compute)
+            indirectArgs[offset + 2] = 0;          // firstIndex
+            indirectArgs[offset + 3] = 0;          // baseVertex
+            indirectArgs[offset + 4] = 0;          // firstInstance
+        }
         indirectBuffer.unmap();
 
-        // Create batch info buffer (4 x f32 = 16 bytes)
+        // Create batch info buffer (16 bytes)
         const batchInfoBuffer = this.device.createBuffer({
             label: `Batch Info Buffer [${key}]`,
             size: 16,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        // Culled instance buffer will be created in ensureBatchResources
+        // Culled instance buffer: segmented for all cameras
+        // Each camera region needs 256-byte alignment
+        const initialCapacity = 1024;
+        // Round up to 256-byte boundary (64 u32s)
+        const alignedCapacity = Math.ceil((initialCapacity * 4) / STORAGE_BUFFER_ALIGNMENT) * STORAGE_BUFFER_ALIGNMENT;
         const culledInstanceBuffer = this.device.createBuffer({
             label: `Culled Instance Buffer [${key}]`,
-            size: 4 * 1024, // 1024 instances initial
+            size: alignedCapacity * MAX_CAMERAS,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
@@ -297,6 +368,7 @@ export class BatchManager {
             instanceOffset: 0,
             instanceCount: 0,
             boundingSphereRadius,
+            culledStridePerCamera: alignedCapacity,
             indirectBuffer,
             culledInstanceBuffer,
             batchInfoBuffer,
@@ -306,20 +378,32 @@ export class BatchManager {
     }
 
     private ensureBatchResources(batch: DrawBatch): void {
-        const requiredCulledSize = batch.instanceCount * 4;
+        // Each camera region needs 256-byte alignment
+        const bytesPerCamera = batch.instanceCount * 4;
+        const alignedBytesPerCamera = Math.ceil(bytesPerCamera / STORAGE_BUFFER_ALIGNMENT) * STORAGE_BUFFER_ALIGNMENT;
+        const requiredCulledSize = alignedBytesPerCamera * MAX_CAMERAS;
 
-        // Check if we need to resize culled buffer
         if (batch.culledInstanceBuffer.size < requiredCulledSize) {
             batch.culledInstanceBuffer.destroy();
+
+            // Double the aligned size for growth
+            const newAlignedBytesPerCamera = Math.ceil((bytesPerCamera * 2) / STORAGE_BUFFER_ALIGNMENT) * STORAGE_BUFFER_ALIGNMENT;
+            const newSize = Math.max(newAlignedBytesPerCamera * MAX_CAMERAS, STORAGE_BUFFER_ALIGNMENT * MAX_CAMERAS);
+
             batch.culledInstanceBuffer = this.device.createBuffer({
                 label: `Culled Instance Buffer [${batch.key}]`,
-                size: Math.max(requiredCulledSize * 2, 4096),
+                size: newSize,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
+
+            batch.culledStridePerCamera = newAlignedBytesPerCamera;
 
             // Invalidate bind groups
             batch.cullBindGroup = null;
             batch.renderBindGroup = null;
+        } else {
+            // Update stride even if buffer didn't resize
+            batch.culledStridePerCamera = alignedBytesPerCamera;
         }
     }
 
@@ -356,11 +440,7 @@ export class BatchManager {
         }
     }
 
-    updateInstanceBuffer(
-        batches: DrawBatch[],
-        camera: Camera,
-        viewProjectionMatrix: Matrix4
-    ): void {
+    updateInstanceBuffer(batches: DrawBatch[]): void {
         if (this.totalInstances === 0) return;
 
         this.ensureInstanceBufferCapacity(this.totalInstances);
@@ -370,43 +450,33 @@ export class BatchManager {
 
         for (const batch of batches) {
             for (const mesh of batch.meshes) {
-                // Compute MVP matrix
-                const mvpMatrix = this._tempMatrix.multiplyMatrices(
-                    viewProjectionMatrix,
-                    mesh.worldMatrix
-                );
-
-                // Model matrix is the world matrix
+                // Model matrix (world matrix)
                 const modelMatrix = mesh.worldMatrix;
-
-                // Compute normal matrix: (inverse(model))^T
-                const normalMatrix = this._tempMatrix2
-                    .copy(modelMatrix)
-                    .invert()
-                    .transpose();
-
-                // Write to array
-                data.set(mvpMatrix.toArray(), offset);
-                offset += 16;
-
                 data.set(modelMatrix.toArray(), offset);
                 offset += 16;
 
+                // Normal matrix: (inverse(model))^T
+                const normalMatrix = this._tempMatrix
+                    .copy(modelMatrix)
+                    .invert()
+                    .transpose();
                 data.set(normalMatrix.toArray(), offset);
                 offset += 16;
 
-                // Camera position + receiveShadow flag
-                data[offset++] = camera.position.x;
-                data[offset++] = camera.position.y;
-                data[offset++] = camera.position.z;
+                // Flags: receiveShadow, castShadow, padding, padding
                 data[offset++] = mesh.receiveShadow ? 1.0 : 0.0;
+                data[offset++] = mesh.castShadow ? 1.0 : 0.0;
+                data[offset++] = 0.0; // padding
+                data[offset++] = 0.0; // padding
             }
 
-            // Update batch info buffer using reusable arrays
+            // Update batch info buffer
+            // Layout: instanceOffset (u32), instanceCount (u32), boundingSphereRadius (f32), culledStridePerCamera (u32)
             this._batchInfoU32[0] = batch.instanceOffset;
             this._batchInfoU32[1] = batch.instanceCount;
-            this._batchInfoF32[0] = batch.boundingSphereRadius;
-            this._batchInfoF32[1] = 0; // padding
+            this._batchInfoF32[2] = batch.boundingSphereRadius;
+            // culledStridePerCamera is in bytes, convert to u32 count
+            this._batchInfoU32[3] = batch.culledStridePerCamera / 4;
             this.device.queue.writeBuffer(batch.batchInfoBuffer, 0, this._batchInfoBuffer);
         }
 
@@ -420,72 +490,57 @@ export class BatchManager {
         );
     }
 
-    updateCameraUniforms(_camera: Camera, viewProjectionMatrix: Matrix4): void {
-        if (!this.cameraUniformBuffer) return;
+    updateCameraUniforms(
+        camera: Camera,
+        shadowLights: DirectionalLight[]
+    ): void {
+        if (!this.cameraBuffer) return;
 
         const data = this._cameraUniformData;
+        data.fill(0);
 
-        // View-projection matrix
-        data.set(viewProjectionMatrix.toArray(), 0);
+        // Header section (first 20 floats)
+        // Layout: mainViewProjection (16) + cameraPosition (3) + activeLightCount (1) = 20 floats
 
-        // Extract frustum planes from view-projection matrix
-        const m = viewProjectionMatrix.elements;
+        // Main camera VP matrix (precomputed on camera)
+        data.set(camera.viewProjectionMatrix.elements, 0);
 
-        // Left plane
-        data[16] = m[3] + m[0];
-        data[17] = m[7] + m[4];
-        data[18] = m[11] + m[8];
-        data[19] = m[15] + m[12];
-        this.normalizePlane(data, 16);
+        // Camera position (for fragment shader lighting)
+        data[16] = camera.position.x;
+        data[17] = camera.position.y;
+        data[18] = camera.position.z;
 
-        // Right plane
-        data[20] = m[3] - m[0];
-        data[21] = m[7] - m[4];
-        data[22] = m[11] - m[8];
-        data[23] = m[15] - m[12];
-        this.normalizePlane(data, 20);
+        // Active light count
+        const activeLights = Math.min(shadowLights.length, MAX_CAMERAS - 1);
+        this.activeShadowLightCount = activeLights;
+        new Uint32Array(data.buffer, 19 * 4, 1)[0] = activeLights;
 
-        // Bottom plane
-        data[24] = m[3] + m[1];
-        data[25] = m[7] + m[5];
-        data[26] = m[11] + m[9];
-        data[27] = m[15] + m[13];
-        this.normalizePlane(data, 24);
+        // Per-camera data starts at offset 20
+        // Each CameraData: VP (16) + frustum (24) = 40 floats
+        // Camera 0 = main camera
+        // Camera 1-4 = shadow lights
 
-        // Top plane
-        data[28] = m[3] - m[1];
-        data[29] = m[7] - m[5];
-        data[30] = m[11] - m[9];
-        data[31] = m[15] - m[13];
-        this.normalizePlane(data, 28);
+        let cameraOffset = 20;
 
-        // Near plane (z >= 0) -> Row 2
-        data[32] = m[2];
-        data[33] = m[6];
-        data[34] = m[10];
-        data[35] = m[14];
-        this.normalizePlane(data, 32);
+        // Main camera (camera 0): VP + frustum (use precomputed values)
+        data.set(camera.viewProjectionMatrix.elements, cameraOffset);
+        data.set(camera.frustumPlanes, cameraOffset + 16);
+        cameraOffset += 40;
 
-        // Far plane (z <= w) -> Row 3 - Row 2
-        data[36] = m[3] - m[2];
-        data[37] = m[7] - m[6];
-        data[38] = m[11] - m[10];
-        data[39] = m[15] - m[14];
-        this.normalizePlane(data, 36);
-
-        this.device.queue.writeBuffer(this.cameraUniformBuffer, 0, data);
-    }
-
-    private normalizePlane(data: Float32Array, offset: number): void {
-        const length = Math.sqrt(
-            data[offset] ** 2 + data[offset + 1] ** 2 + data[offset + 2] ** 2
-        );
-        if (length > 0) {
-            data[offset] /= length;
-            data[offset + 1] /= length;
-            data[offset + 2] /= length;
-            data[offset + 3] /= length;
+        // Shadow light cameras (cameras 1-4) - use precomputed values from shadow cameras
+        for (let i = 0; i < activeLights; i++) {
+            const light = shadowLights[i];
+            if (light.castShadow && light.shadow.camera) {
+                const shadowCam = light.shadow.camera;
+                // Write light VP (precomputed on shadow camera)
+                data.set(shadowCam.viewProjectionMatrix.elements, cameraOffset);
+                // Write light frustum planes (precomputed on shadow camera)
+                data.set(shadowCam.frustumPlanes, cameraOffset + 16);
+            }
+            cameraOffset += 40;
         }
+
+        this.device.queue.writeBuffer(this.cameraBuffer, 0, data);
     }
 
     getCullBindGroup(batch: DrawBatch): GPUBindGroup {
@@ -504,22 +559,64 @@ export class BatchManager {
         return batch.cullBindGroup;
     }
 
-    getRenderBindGroup(batch: DrawBatch): GPUBindGroup {
-        if (!batch.renderBindGroup) {
-            batch.renderBindGroup = this.device.createBindGroup({
-                label: `Render Bind Group [${batch.key}]`,
-                layout: this.renderBindGroupLayout!,
-                entries: [
-                    { binding: 0, resource: { buffer: this.instanceBuffer! } },
-                    { binding: 1, resource: { buffer: batch.culledInstanceBuffer } },
-                ],
-            });
+    getRenderBindGroup(batch: DrawBatch, cameraIndex: number): GPUBindGroup {
+        // Calculate offset into culled buffer for this camera (256-byte aligned)
+        const culledOffset = cameraIndex * batch.culledStridePerCamera;
+        // Size should be the minimum of actual instances needed or the stride
+        const culledSize = Math.min(batch.instanceCount * 4, batch.culledStridePerCamera);
+
+        // For camera 0, we can cache the bind group
+        if (cameraIndex === 0) {
+            if (!batch.renderBindGroup) {
+                batch.renderBindGroup = this.device.createBindGroup({
+                    label: `Render Bind Group [${batch.key}] Camera 0`,
+                    layout: this.renderBindGroupLayout!,
+                    entries: [
+                        { binding: 0, resource: { buffer: this.instanceBuffer! } },
+                        {
+                            binding: 1,
+                            resource: {
+                                buffer: batch.culledInstanceBuffer,
+                                offset: 0,
+                                size: culledSize,
+                            }
+                        },
+                        { binding: 2, resource: { buffer: this.cameraBuffer! } },
+                    ],
+                });
+            }
+            return batch.renderBindGroup;
         }
-        return batch.renderBindGroup;
+
+        // For other cameras, create bind group on demand
+        return this.device.createBindGroup({
+            label: `Render Bind Group [${batch.key}] Camera ${cameraIndex}`,
+            layout: this.renderBindGroupLayout!,
+            entries: [
+                { binding: 0, resource: { buffer: this.instanceBuffer! } },
+                {
+                    binding: 1,
+                    resource: {
+                        buffer: batch.culledInstanceBuffer,
+                        offset: culledOffset,
+                        size: culledSize,
+                    }
+                },
+                { binding: 2, resource: { buffer: this.cameraBuffer! } },
+            ],
+        });
+    }
+
+    getIndirectBufferOffset(cameraIndex: number): number {
+        return cameraIndex * 20; // 5 u32s × 4 bytes = 20 bytes per camera
     }
 
     getBatches(): DrawBatch[] {
         return this.batches;
+    }
+
+    getTotalInstances(): number {
+        return this.totalInstances;
     }
 
     getStats(): BatchStats {
@@ -537,9 +634,9 @@ export class BatchManager {
             this.instanceBuffer = null;
         }
 
-        if (this.cameraUniformBuffer) {
-            this.cameraUniformBuffer.destroy();
-            this.cameraUniformBuffer = null;
+        if (this.cameraBuffer) {
+            this.cameraBuffer.destroy();
+            this.cameraBuffer = null;
         }
 
         for (const batch of this.batchCache.values()) {
@@ -553,5 +650,4 @@ export class BatchManager {
         this.batches = [];
         this.totalInstances = 0;
     }
-
 }

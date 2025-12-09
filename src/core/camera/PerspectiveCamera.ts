@@ -27,5 +27,6 @@ export class PerspectiveCamera extends Camera {
             this.near,
             this.far,
         );
+        super.updateProjectionMatrix();
     }
 }

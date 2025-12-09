@@ -18,42 +18,58 @@ export class LambertMaterial extends Material {
 
     getVertexShader(): string {
         return /* wgsl */ `
-      struct InstanceData {
-        mvpMatrix: mat4x4<f32>,
-        modelMatrix: mat4x4<f32>,
-        normalMatrix: mat4x4<f32>,
-        cameraPosAndFlags: vec4<f32>,
-      };
+      const MAX_CAMERAS: u32 = 5u;
 
-      @group(0) @binding(0) var<storage, read> instances: array<InstanceData>;
+      struct CameraData {
+          viewProjection: mat4x4<f32>,
+          frustum: array<vec4<f32>, 6>,
+      }
+
+      struct CameraUniforms {
+          mainViewProjection: mat4x4<f32>,
+          cameraPosition: vec3<f32>,
+          activeLightCount: u32,
+          cameras: array<CameraData, MAX_CAMERAS>,
+      }
+
+      struct InstanceData {
+          modelMatrix: mat4x4<f32>,
+          normalMatrix: mat4x4<f32>,
+          flags: vec4<f32>, // x: receiveShadow, y: castShadow
+      }
 
       struct CulledInstances {
-        indices: array<u32>,
-      };
+          indices: array<u32>,
+      }
+
+      @group(0) @binding(0) var<storage, read> instances: array<InstanceData>;
       @group(0) @binding(1) var<storage, read> culled: CulledInstances;
+      @group(0) @binding(2) var<uniform> cameraUniforms: CameraUniforms;
 
       struct VertexOutput {
-        @builtin(position) position: vec4<f32>,
-        @location(0) vPosition: vec3<f32>,
-        @location(1) vNormal: vec3<f32>,
-        @location(2) vReceiveShadow: f32,
-      };
+          @builtin(position) position: vec4<f32>,
+          @location(0) vPosition: vec3<f32>,
+          @location(1) vNormal: vec3<f32>,
+          @location(2) vReceiveShadow: f32,
+      }
 
       @vertex
       fn main(
-        @builtin(instance_index) instanceIndex: u32,
-        @location(0) position: vec3<f32>,
-        @location(1) normal: vec3<f32>
+          @builtin(instance_index) instanceIndex: u32,
+          @location(0) position: vec3<f32>,
+          @location(1) normal: vec3<f32>
       ) -> VertexOutput {
-        let actualIndex = culled.indices[instanceIndex];
-        let instance = instances[actualIndex];
+          let actualIndex = culled.indices[instanceIndex];
+          let instance = instances[actualIndex];
 
-        var output: VertexOutput;
-        output.position = instance.mvpMatrix * vec4<f32>(position, 1.0);
-        output.vPosition = (instance.modelMatrix * vec4<f32>(position, 1.0)).xyz;
-        output.vNormal = normalize((instance.normalMatrix * vec4<f32>(normal, 0.0)).xyz);
-        output.vReceiveShadow = instance.cameraPosAndFlags.w;
-        return output;
+          let worldPos = instance.modelMatrix * vec4<f32>(position, 1.0);
+
+          var output: VertexOutput;
+          output.position = cameraUniforms.mainViewProjection * worldPos;
+          output.vPosition = worldPos.xyz;
+          output.vNormal = normalize((instance.normalMatrix * vec4<f32>(normal, 0.0)).xyz);
+          output.vReceiveShadow = instance.flags.x;
+          return output;
       }
     `;
     }
@@ -61,98 +77,98 @@ export class LambertMaterial extends Material {
     getFragmentShader(): string {
         return /* wgsl */ `
       struct MaterialUniforms {
-        color: vec3<f32>,
-      };
+          color: vec3<f32>,
+      }
       @group(1) @binding(0) var<uniform> material: MaterialUniforms;
 
       struct Light {
-        direction: vec3<f32>,
-        intensity: f32,
-        color: vec3<f32>,
-        shadowLayerIndex: i32,
-        viewProj: mat4x4<f32>,
-        shadowMapSize: vec2<f32>,
-        shadowType: f32,
-        padding: f32,
-      };
+          direction: vec3<f32>,
+          intensity: f32,
+          color: vec3<f32>,
+          shadowLayerIndex: i32,
+          viewProj: mat4x4<f32>,
+          shadowMapSize: vec2<f32>,
+          shadowType: f32,
+          padding: f32,
+      }
       struct LightUniforms {
-        ambientColor: vec3<f32>,
-        lightCount: u32,
-        lights: array<Light, 16>,
-      };
+          ambientColor: vec3<f32>,
+          lightCount: u32,
+          lights: array<Light, 16>,
+      }
       @group(2) @binding(0) var<uniform> lighting: LightUniforms;
       @group(2) @binding(1) var shadowMap: texture_depth_2d_array;
       @group(2) @binding(2) var shadowSampler: sampler_comparison;
 
       @fragment
       fn main(
-        @location(0) vPosition: vec3<f32>,
-        @location(1) vNormal: vec3<f32>,
-        @location(2) vReceiveShadow: f32
+          @location(0) vPosition: vec3<f32>,
+          @location(1) vNormal: vec3<f32>,
+          @location(2) vReceiveShadow: f32
       ) -> @location(0) vec4<f32> {
-        let normal = normalize(vNormal);
+          let normal = normalize(vNormal);
 
-        // Ambient
-        let ambient = lighting.ambientColor * material.color;
+          // Ambient
+          let ambient = lighting.ambientColor * material.color;
 
-        // Diffuse
-        var diffuse = vec3<f32>(0.0);
+          // Diffuse
+          var diffuse = vec3<f32>(0.0);
 
-        for (var i = 0u; i < lighting.lightCount; i++) {
-            let light = lighting.lights[i];
-            let lightDir = normalize(-light.direction);
+          for (var i = 0u; i < lighting.lightCount; i++) {
+              let light = lighting.lights[i];
+              let lightDir = normalize(-light.direction);
 
-            // Shadow Calculation
-            var shadow = 1.0;
+              // Shadow Calculation
+              var shadow = 1.0;
 
-            // Transform position to light space
-            let lightPos = light.viewProj * vec4<f32>(vPosition, 1.0);
-            let shadowPos = vec3<f32>(
-                lightPos.x * 0.5 + 0.5,
-                -lightPos.y * 0.5 + 0.5,
-                lightPos.z
-            );
+              // Transform position to light space
+              let lightPos = light.viewProj * vec4<f32>(vPosition, 1.0);
+              let shadowPos = vec3<f32>(
+                  lightPos.x * 0.5 + 0.5,
+                  -lightPos.y * 0.5 + 0.5,
+                  lightPos.z
+              );
 
-            // Sample shadow map
-            var shadowSample = 0.0;
-            let layerIndex = light.shadowLayerIndex;
-            let shadowType = light.shadowType;
+              // Sample shadow map
+              var shadowSample = 0.0;
+              let layerIndex = light.shadowLayerIndex;
+              let shadowType = light.shadowType;
 
-            if (layerIndex >= 0) {
-                if (shadowType > 1.5) {
-                    // PCFSoft (5x5)
-                    var shadowSum = 0.0;
-                    let texelSize = vec2<f32>(1.0 / light.shadowMapSize.x, 1.0 / light.shadowMapSize.y);
-                    for (var x = -2; x <= 2; x++) {
-                        for (var y = -2; y <= 2; y++) {
-                            let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
-                            shadowSum += textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy + offset, layerIndex, shadowPos.z - 0.005);
-                        }
-                    }
-                    shadowSample = shadowSum / 25.0;
-                } else {
-                    // PCF (Single sample, hardware filtering) or Basic
-                    shadowSample = textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy, layerIndex, shadowPos.z - 0.005);
-                }
-            } else {
-                // No shadow
-                shadowSample = 1.0;
-            }
+              if (layerIndex >= 0) {
+                  if (shadowType > 1.5) {
+                      // PCFSoft (5x5)
+                      var shadowSum = 0.0;
+                      let texelSize = vec2<f32>(1.0 / light.shadowMapSize.x, 1.0 / light.shadowMapSize.y);
+                      for (var x = -2; x <= 2; x++) {
+                          for (var y = -2; y <= 2; y++) {
+                              let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
+                              shadowSum += textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy + offset, layerIndex, shadowPos.z - 0.005);
+                          }
+                      }
+                      shadowSample = shadowSum / 25.0;
+                  } else {
+                      // PCF (Single sample, hardware filtering) or Basic
+                      shadowSample = textureSampleCompare(shadowMap, shadowSampler, shadowPos.xy, layerIndex, shadowPos.z - 0.005);
+                  }
+              } else {
+                  // No shadow
+                  shadowSample = 1.0;
+              }
 
-            // Apply shadow only if within light frustum
-            if (shadowPos.x > 0.0 && shadowPos.x < 1.0 && shadowPos.y > 0.0 && shadowPos.y < 1.0 && shadowPos.z > 0.0 && shadowPos.z < 1.0) {
-                // Check receiveShadow flag from vertex output
-                if (vReceiveShadow > 0.5) {
-                    shadow = shadowSample;
-                }
-            }
+              // Apply shadow only if within light frustum
+              if (shadowPos.x > 0.0 && shadowPos.x < 1.0 && shadowPos.y > 0.0 && shadowPos.y < 1.0 && shadowPos.z > 0.0 && shadowPos.z < 1.0) {
+                  // Check receiveShadow flag from vertex output
+                  if (vReceiveShadow > 0.5) {
+                      shadow = shadowSample;
+                  }
+              }
 
-            // Diffuse
-            let diff = max(dot(normal, lightDir), 0.0);
-            diffuse += diff * light.color * light.intensity * material.color * shadow;
-        }
+              // Diffuse
+              let diff = max(dot(normal, lightDir), 0.0);
+              diffuse += diff * light.color * light.intensity * material.color * shadow;
+          }
 
-        return vec4<f32>(ambient + diffuse, 1.0);
+          return vec4<f32>(ambient + diffuse, 1.0);
       }
     `;
     }

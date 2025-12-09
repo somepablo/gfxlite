@@ -2,16 +2,13 @@ import { RenderPhase } from "./RenderPhase";
 import type { Scene } from "../scene/Scene";
 import type { Camera } from "../camera/Camera";
 import { Mesh } from "../object/Mesh";
-import { Matrix4 } from "../../math";
 import { PhongMaterial } from "../material/PhongMaterial";
 import { LambertMaterial } from "../material/LambertMaterial";
 import { BasicMaterial } from "../material/BasicMaterial";
 import type { LightingManager } from "./LightingManager";
 import type { BatchManager, DrawBatch } from "./BatchManager";
-import { CullingComputePhase } from "./CullingComputePhase";
 import type { Material } from "../material/Material";
 import { Program } from "./Program";
-
 
 interface IndirectPipelineData {
     program: Program;
@@ -28,8 +25,6 @@ export class MainRenderPhase extends RenderPhase {
 
     private renderList: Mesh[] = [];
     private batches: DrawBatch[] = [];
-    private viewProjectionMatrix: Matrix4 = new Matrix4();
-    private camera: Camera | null = null;
 
     // Indirect pipeline cache by material constructor name
     private indirectPipelineCache = new Map<string, IndirectPipelineData>();
@@ -117,7 +112,7 @@ export class MainRenderPhase extends RenderPhase {
 
         // Build bind group layouts array
         const bindGroupLayouts: GPUBindGroupLayout[] = [
-            this.batchManager.getRenderBindGroupLayout(), // Group 0: instances + culled
+            this.batchManager.getRenderBindGroupLayout(), // Group 0: instances + culled + camera
             this.materialBindGroupLayout!, // Group 1: material
         ];
 
@@ -173,8 +168,7 @@ export class MainRenderPhase extends RenderPhase {
         }
     }
 
-    prepare(scene: Scene, camera: Camera): void {
-        this.camera = camera;
+    prepare(scene: Scene, _camera: Camera): void {
         this.renderList = [];
         this.debugInfo.calls = 0;
         this.debugInfo.triangles = 0;
@@ -187,55 +181,14 @@ export class MainRenderPhase extends RenderPhase {
             }
         });
 
-        // Compute view-projection
-        this.viewProjectionMatrix.multiplyMatrices(
-            camera.projectionMatrix,
-            camera.viewMatrix
-        );
-
-        // Prepare batches and update instance buffer
+        // Prepare batches
         this.batches = this.batchManager.prepareBatches(this.renderList);
-        this.batchManager.updateInstanceBuffer(
-            this.batches,
-            camera,
-            this.viewProjectionMatrix
-        );
-
-        // Update camera uniforms for culling
-        this.batchManager.updateCameraUniforms(camera, this.viewProjectionMatrix);
-
         this.debugInfo.batches = this.batches.length;
     }
 
     execute(commandEncoder: GPUCommandEncoder): void {
-        if (this.batches.length === 0 || !this.camera) return;
+        if (this.batches.length === 0) return;
 
-        // Phase 1: GPU Frustum Culling
-        // Phase 2: Indirect Rendering
-        this.executeRenderPass(commandEncoder);
-    }
-
-    registerCullingPasses(cullingPhase: CullingComputePhase): void {
-        const batches = this.batchManager.getBatches();
-        const cameraBindGroup = this.batchManager.getCameraBindGroup();
-
-        if (!cameraBindGroup) return;
-
-        for (const batch of batches) {
-            const cullBindGroup = this.batchManager.getCullBindGroup(batch);
-            if (!cullBindGroup) continue;
-
-            cullingPhase.addCullPass(
-                "main",
-                batch,
-                cameraBindGroup,
-                cullBindGroup,
-                batch.indirectBuffer
-            );
-        }
-    }
-
-    private executeRenderPass(commandEncoder: GPUCommandEncoder): void {
         const textureView = this.context.getCurrentTexture().createView();
 
         const colorAttachment: GPURenderPassColorAttachment = {
@@ -280,8 +233,8 @@ export class MainRenderPhase extends RenderPhase {
                 }
             }
 
-            // Set instance bind group (group 0)
-            const renderBindGroup = this.batchManager.getRenderBindGroup(batch);
+            // Set instance bind group (group 0) - camera index 0 for main camera
+            const renderBindGroup = this.batchManager.getRenderBindGroup(batch, 0);
             passEncoder.setBindGroup(0, renderBindGroup);
 
             // Set material bind group (group 1)
@@ -297,12 +250,13 @@ export class MainRenderPhase extends RenderPhase {
                 passEncoder.setVertexBuffer(1, geometryData.normalBuffer);
             }
 
-            // Draw
+            // Draw using indirect buffer at offset 0 (main camera)
+            const indirectOffset = this.batchManager.getIndirectBufferOffset(0);
             if (geometryData.indexBuffer) {
                 passEncoder.setIndexBuffer(geometryData.indexBuffer, "uint32");
-                passEncoder.drawIndexedIndirect(batch.indirectBuffer, 0);
+                passEncoder.drawIndexedIndirect(batch.indirectBuffer, indirectOffset);
             } else {
-                passEncoder.drawIndirect(batch.indirectBuffer, 0);
+                passEncoder.drawIndirect(batch.indirectBuffer, indirectOffset);
             }
 
             this.debugInfo.calls++;

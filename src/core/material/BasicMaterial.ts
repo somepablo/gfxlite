@@ -17,27 +17,42 @@ export class BasicMaterial extends Material {
 
     getVertexShader(): string {
         return /* wgsl */ `
-      struct InstanceData {
-        mvpMatrix: mat4x4<f32>,
-        modelMatrix: mat4x4<f32>,
-        normalMatrix: mat4x4<f32>,
-        cameraPosAndFlags: vec4<f32>,
-      };
+      const MAX_CAMERAS: u32 = 5u;
 
-      @group(0) @binding(0) var<storage, read> instances: array<InstanceData>;
+      struct CameraData {
+          viewProjection: mat4x4<f32>,
+          frustum: array<vec4<f32>, 6>,
+      }
+
+      struct CameraUniforms {
+          mainViewProjection: mat4x4<f32>,
+          cameraPosition: vec3<f32>,
+          activeLightCount: u32,
+          cameras: array<CameraData, MAX_CAMERAS>,
+      }
+
+      struct InstanceData {
+          modelMatrix: mat4x4<f32>,
+          normalMatrix: mat4x4<f32>,
+          flags: vec4<f32>,
+      }
 
       struct CulledInstances {
-        indices: array<u32>,
-      };
+          indices: array<u32>,
+      }
+
+      @group(0) @binding(0) var<storage, read> instances: array<InstanceData>;
       @group(0) @binding(1) var<storage, read> culled: CulledInstances;
+      @group(0) @binding(2) var<uniform> cameraUniforms: CameraUniforms;
 
       @vertex
       fn main(
-        @builtin(instance_index) instanceIndex: u32,
-        @location(0) position: vec3<f32>
+          @builtin(instance_index) instanceIndex: u32,
+          @location(0) position: vec3<f32>
       ) -> @builtin(position) vec4<f32> {
-        let actualIndex = culled.indices[instanceIndex];
-        return instances[actualIndex].mvpMatrix * vec4<f32>(position, 1.0);
+          let actualIndex = culled.indices[instanceIndex];
+          let worldPos = instances[actualIndex].modelMatrix * vec4<f32>(position, 1.0);
+          return cameraUniforms.mainViewProjection * worldPos;
       }
     `;
     }
@@ -48,7 +63,7 @@ export class BasicMaterial extends Material {
 
       @fragment
       fn main() -> @location(0) vec4<f32> {
-        return vec4<f32>(color, 1.0);
+          return vec4<f32>(color, 1.0);
       }
     `;
     }
