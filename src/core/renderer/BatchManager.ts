@@ -282,7 +282,7 @@ export class BatchManager {
         // Culled instance buffer will be created in ensureBatchResources
         const culledInstanceBuffer = this.device.createBuffer({
             label: `Culled Instance Buffer [${key}]`,
-            size: 4 + 4 * 1024, // count + 1024 instances initial
+            size: 4 * 1024, // 1024 instances initial
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
@@ -303,7 +303,7 @@ export class BatchManager {
     }
 
     private ensureBatchResources(batch: DrawBatch): void {
-        const requiredCulledSize = 4 + batch.instanceCount * 4; // count + indices
+        const requiredCulledSize = batch.instanceCount * 4;
 
         // Check if we need to resize culled buffer
         if (batch.culledInstanceBuffer.size < requiredCulledSize) {

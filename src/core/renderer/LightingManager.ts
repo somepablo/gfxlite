@@ -6,18 +6,9 @@ import { Vector3, Matrix4 } from "../../math";
 const MAX_LIGHTS = 16;
 const MAX_SHADOW_LIGHTS = 4;
 
-export interface LightData {
-    direction: Vector3;
-    intensity: number;
-    color: Vector3;
-    shadowLight: DirectionalLight | null;
-    shadowLayerIndex: number;
-}
-
 export class LightingManager {
     private device: GPUDevice;
     private lightingBuffer: GPUBuffer | null = null;
-    private lightingBindGroupCache = new WeakMap<GPURenderPipeline, GPUBindGroup>();
     
     public shadowMapArray: GPUTexture | null = null;
     public shadowMapArrayView: GPUTextureView | null = null;
@@ -69,8 +60,6 @@ export class LightingManager {
                 size: lightingDataSize,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
-            
-            this.lightingBindGroupCache = new WeakMap();
         }
 
         let maxShadowMapSize = 512;
@@ -82,7 +71,6 @@ export class LightingManager {
 
         if (!this.shadowMapArray || this.shadowMapArray.width !== maxShadowMapSize) {
             this.createShadowMapArray(maxShadowMapSize);
-            this.lightingBindGroupCache = new WeakMap();
         }
 
         const lightingData = new Float32Array(lightingDataSize / 4);
@@ -159,35 +147,6 @@ export class LightingManager {
         });
     }
 
-    getLightingBindGroup(
-        pipeline: GPURenderPipeline
-    ): GPUBindGroup {
-        let lightingBindGroup = this.lightingBindGroupCache.get(pipeline);
-        
-        if (!lightingBindGroup && this.lightingBuffer) {
-            const entries: GPUBindGroupEntry[] = [
-                { binding: 0, resource: { buffer: this.lightingBuffer } },
-            ];
-
-            if (this.shadowMapArrayView) {
-                entries.push({ binding: 1, resource: this.shadowMapArrayView });
-                entries.push({ binding: 2, resource: this.dummyShadowSampler });
-            } else {
-                entries.push({ binding: 1, resource: this.dummyShadowMap });
-                entries.push({ binding: 2, resource: this.dummyShadowSampler });
-            }
-
-            lightingBindGroup = this.device.createBindGroup({
-                layout: pipeline.getBindGroupLayout(2),
-                entries: entries,
-            });
-            
-            this.lightingBindGroupCache.set(pipeline, lightingBindGroup);
-        }
-
-        return lightingBindGroup!;
-    }
-
     // Getters for external access (used by MainRenderPhase)
     getLightingBuffer(): GPUBuffer | null {
         return this.lightingBuffer;
@@ -210,6 +169,5 @@ export class LightingManager {
             this.shadowMapArray.destroy();
             this.shadowMapArray = null;
         }
-        this.lightingBindGroupCache = new WeakMap();
     }
 }

@@ -42,7 +42,6 @@ export class MainRenderPhase extends RenderPhase {
         calls: 0,
         triangles: 0,
         batches: 0,
-        culledInstances: 0,
     };
 
     constructor(

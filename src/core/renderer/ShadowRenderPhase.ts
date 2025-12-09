@@ -9,8 +9,6 @@ import { Matrix4, Box3 } from "../../math";
 import type { BatchManager, DrawBatch } from "./BatchManager";
 import { CullingComputePhase } from "./CullingComputePhase";
 
-
-    // ... items ...
 const MAX_SHADOW_LIGHTS = 4;
 const UNIFORM_BUFFER_ALIGNMENT = 256; // WebGPU minUniformBufferOffsetAlignment
 
@@ -119,7 +117,6 @@ export class ShadowRenderPhase extends RenderPhase {
             @group(0) @binding(0) var<storage, read> instances: array<ShadowInstanceData>;
 
             struct CulledInstances {
-                count: u32,
                 indices: array<u32>,
             };
             @group(0) @binding(1) var<storage, read> culled: CulledInstances;
@@ -287,22 +284,11 @@ export class ShadowRenderPhase extends RenderPhase {
 
     private renderShadowForLight(
         commandEncoder: GPUCommandEncoder,
-        light: DirectionalLight,
+        _light: DirectionalLight,
         shadowMapArray: GPUTexture,
         layerIndex: number
     ): void {
         if (this.batches.length === 0) return;
-
-        if (this.batches.length === 0) return;
-
-        // ViewProjection calculated in prepare, but we can recalculate or store it. 
-        // For rendering, we just need binds.
-
-        // Phase 1: Culling is handled by CullingComputePhase - we just registered requests if this was prepare()
-        // But wait, we need to register the requests somewhere.
-        // Or we assume Renderer did it by traversing the lights?
-        // Renderer calls prepare, but shadow prepare loops lights.
-        // We should register culling requests during prepare().
 
 
         // Phase 2: Render
@@ -574,7 +560,7 @@ export class ShadowRenderPhase extends RenderPhase {
             const newCapacity = Math.max(batch.instanceCount * 2, 1024);
             data.culledBuffer = this.device.createBuffer({
                 label: `Shadow Culled Buffer [${key}]`,
-                size: 4 + newCapacity * 4,
+                size: newCapacity * 4,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
             data.instanceCapacity = newCapacity;
@@ -649,7 +635,7 @@ export class ShadowRenderPhase extends RenderPhase {
 
         const culledBuffer = this.device.createBuffer({
             label: `Shadow Culled Buffer [${key}]`,
-            size: 4 + initialCapacity * 4,
+            size: initialCapacity * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 

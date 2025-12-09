@@ -27,7 +27,6 @@ export class BasicMaterial extends Material {
       @group(0) @binding(0) var<storage, read> instances: array<InstanceData>;
 
       struct CulledInstances {
-        count: u32,
         indices: array<u32>,
       };
       @group(0) @binding(1) var<storage, read> culled: CulledInstances;

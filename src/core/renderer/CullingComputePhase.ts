@@ -20,8 +20,7 @@ struct InstanceData {
 }
 
 struct CulledInstances {
-    count: atomic<u32>,
-    instances: array<u32>,
+    indices: array<u32>,
 }
 
 struct IndirectArgs {
@@ -87,7 +86,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     }
 
     let culledIndex = atomicAdd(&indirectArgs.instanceCount, 1u);
-    culled.instances[culledIndex] = instanceIndex;
+    culled.indices[culledIndex] = instanceIndex;
 }
 `;
 
@@ -103,7 +102,6 @@ struct ShadowInstanceData {
 }
 
 struct CulledInstances {
-    count: atomic<u32>,
     indices: array<u32>,
 }
 
