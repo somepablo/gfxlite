@@ -60,6 +60,10 @@ export class ShadowRenderPhase extends RenderPhase {
     private lightCameraBindGroups = new Map<number, GPUBindGroup>();
     private lightCameraBuffer: GPUBuffer | null = null;
 
+    // Cached shadow map layer views
+    private shadowMapLayerViews = new Map<number, GPUTextureView>();
+    private cachedShadowMapArray: GPUTexture | null = null;
+
     private _tempMatrix = new Matrix4();
     private _tempMatrix2 = new Matrix4();
 
@@ -295,12 +299,23 @@ export class ShadowRenderPhase extends RenderPhase {
 
 
         // Phase 2: Render
-        const layerView = shadowMapArray.createView({
-            label: `Shadow Map Layer ${layerIndex}`,
-            baseArrayLayer: layerIndex,
-            arrayLayerCount: 1,
-            dimension: "2d",
-        });
+        // Invalidate cached views if shadow map array changed
+        if (this.cachedShadowMapArray !== shadowMapArray) {
+            this.shadowMapLayerViews.clear();
+            this.cachedShadowMapArray = shadowMapArray;
+        }
+
+        // Get or create cached layer view
+        let layerView = this.shadowMapLayerViews.get(layerIndex);
+        if (!layerView) {
+            layerView = shadowMapArray.createView({
+                label: `Shadow Map Layer ${layerIndex}`,
+                baseArrayLayer: layerIndex,
+                arrayLayerCount: 1,
+                dimension: "2d",
+            });
+            this.shadowMapLayerViews.set(layerIndex, layerView);
+        }
 
         const passEncoder = commandEncoder.beginRenderPass({
             label: `Shadow Pass (Indirect) - Light ${layerIndex}`,
@@ -728,5 +743,7 @@ export class ShadowRenderPhase extends RenderPhase {
         }
         this.shadowBatchData.clear();
         this.lightCameraBindGroups.clear();
+        this.shadowMapLayerViews.clear();
+        this.cachedShadowMapArray = null;
     }
 }

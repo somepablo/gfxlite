@@ -56,12 +56,12 @@ export class Object3D {
         this.updateLocalMatrix();
 
         if (parentWorldMatrix) {
-            this.worldMatrix = new Matrix4().multiplyMatrices(
+            this.worldMatrix.multiplyMatrices(
                 parentWorldMatrix,
                 this.localMatrix,
             );
         } else {
-            this.worldMatrix = this.localMatrix.clone();
+            this.worldMatrix.copy(this.localMatrix);
         }
 
         for (const child of this.children) {

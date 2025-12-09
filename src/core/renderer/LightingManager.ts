@@ -22,6 +22,9 @@ export class LightingManager {
     // Reusable buffer for lighting data to avoid per-frame allocations
     private _lightingData = new Float32Array(LIGHTING_DATA_SIZE / 4);
 
+    // Reusable temp objects
+    private _tempMatrix = new Matrix4();
+
     constructor(
         device: GPUDevice,
         dummyShadowMap: GPUTextureView,
@@ -116,11 +119,11 @@ export class LightingManager {
 
             // Shadow ViewProj Matrix (offset 8 in struct)
             if (shadowLight && shadowLight.shadow.camera) {
-                const shadowViewProj = new Matrix4().multiplyMatrices(
+                this._tempMatrix.multiplyMatrices(
                     shadowLight.shadow.camera.projectionMatrix,
                     shadowLight.shadow.camera.viewMatrix
                 );
-                lightingData.set(shadowViewProj.toArray(), baseOffset + 8);
+                lightingData.set(this._tempMatrix.toArray(), baseOffset + 8);
             }
 
             // Shadow Map Size (offset 24 in struct)
