@@ -6,15 +6,21 @@ import { Vector3, Matrix4 } from "../../math";
 const MAX_LIGHTS = 16;
 const MAX_SHADOW_LIGHTS = 4;
 
+// Pre-calculated buffer size: 16 (header) + 112 * 16 (lights) = 1808 bytes = 452 floats
+const LIGHTING_DATA_SIZE = 16 + 112 * MAX_LIGHTS;
+
 export class LightingManager {
     private device: GPUDevice;
     private lightingBuffer: GPUBuffer | null = null;
-    
+
     public shadowMapArray: GPUTexture | null = null;
     public shadowMapArrayView: GPUTextureView | null = null;
 
     private dummyShadowMap: GPUTextureView;
     private dummyShadowSampler: GPUSampler;
+
+    // Reusable buffer for lighting data to avoid per-frame allocations
+    private _lightingData = new Float32Array(LIGHTING_DATA_SIZE / 4);
 
     constructor(
         device: GPUDevice,
@@ -43,21 +49,19 @@ export class LightingManager {
         // viewProj: mat4x4<f32> (64)
         // shadowMapSize: vec2<f32> (8) + padding: vec2<f32> (8) = 16
         // Total per light: 112 bytes
-        
+
         // Uniforms size:
         // ambientColor: vec3<f32> (12) + lightCount: u32 (4) = 16
         // lights: array<Light, MAX_LIGHTS>
-        
-        const lightStructSize = 112;
-        const lightingDataSize = 16 + lightStructSize * MAX_LIGHTS;
 
-        
-        if (!this.lightingBuffer || this.lightingBuffer.size < lightingDataSize) {
+        const lightStructSize = 112;
+
+        if (!this.lightingBuffer || this.lightingBuffer.size < LIGHTING_DATA_SIZE) {
             if (this.lightingBuffer) this.lightingBuffer.destroy();
-            
+
             this.lightingBuffer = this.device.createBuffer({
                 label: "Lighting Uniform Buffer",
-                size: lightingDataSize,
+                size: LIGHTING_DATA_SIZE,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
         }
@@ -73,8 +77,10 @@ export class LightingManager {
             this.createShadowMapArray(maxShadowMapSize);
         }
 
-        const lightingData = new Float32Array(lightingDataSize / 4);
-        
+        // Use pre-allocated buffer and clear it
+        const lightingData = this._lightingData;
+        lightingData.fill(0);
+
         lightingData.set(scene.ambientLight.toArray(), 0);
         
         new Uint32Array(lightingData.buffer, 12, 1)[0] = lights.length;

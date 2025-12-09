@@ -79,6 +79,9 @@ export class BatchManager {
     private _batchInfoU32 = new Uint32Array(this._batchInfoBuffer, 0, 2);
     private _batchInfoF32 = new Float32Array(this._batchInfoBuffer, 8, 2);
 
+    // Reusable buffer for camera uniforms (40 floats = 160 bytes)
+    private _cameraUniformData = new Float32Array(40);
+
     constructor(device: GPUDevice) {
         this.device = device;
         this.initRenderBindGroupLayout();
@@ -420,7 +423,7 @@ export class BatchManager {
     updateCameraUniforms(_camera: Camera, viewProjectionMatrix: Matrix4): void {
         if (!this.cameraUniformBuffer) return;
 
-        const data = new Float32Array(40);
+        const data = this._cameraUniformData;
 
         // View-projection matrix
         data.set(viewProjectionMatrix.toArray(), 0);

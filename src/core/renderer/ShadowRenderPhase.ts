@@ -71,6 +71,9 @@ export class ShadowRenderPhase extends RenderPhase {
     // Reusable array for world matrices
     private _worldMatricesData: Float32Array | null = null;
 
+    // Reusable buffer for light camera uniforms (40 floats = 160 bytes)
+    private _lightCameraUniformData = new Float32Array(40);
+
     constructor(
         device: GPUDevice,
         lightingManager: LightingManager,
@@ -456,7 +459,7 @@ export class ShadowRenderPhase extends RenderPhase {
     ): void {
         if (!this.lightCameraBuffer) return;
 
-        const data = new Float32Array(40);
+        const data = this._lightCameraUniformData;
 
         // View-projection matrix
         data.set(viewProjectionMatrix.toArray(), 0);

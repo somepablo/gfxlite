@@ -329,6 +329,12 @@ export class CullingComputePhase extends RenderPhase {
     execute(commandEncoder: GPUCommandEncoder): void {
         if (this.requests.length === 0) return;
 
+        // Sort requests by type to minimize pipeline switches (shadow first, then main)
+        this.requests.sort((a, b) => {
+            if (a.type === b.type) return 0;
+            return a.type === "shadow" ? -1 : 1;
+        });
+
         // 1. Clear Indirect Buffers (reset instanceCount)
         for (const req of this.requests) {
              // Clear instanceCount at offset 4 (after indexCount)
