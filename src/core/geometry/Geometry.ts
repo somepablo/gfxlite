@@ -6,13 +6,20 @@ export class Geometry {
     public readonly id = geometryID++;
     public vertices: Float32Array;
     public normals: Float32Array | null = null;
+    public uvs: Float32Array | null = null;
     public indices: Uint32Array | null = null;
     public indexCount: number;
     public boundingBox: Box3 | null = null;
 
-    constructor(vertices: Float32Array, indices?: Uint32Array, normals?: Float32Array) {
+    constructor(
+        vertices: Float32Array,
+        indices?: Uint32Array,
+        normals?: Float32Array,
+        uvs?: Float32Array
+    ) {
         this.vertices = vertices;
         this.normals = normals || null;
+        this.uvs = uvs || null;
 
         if (indices) {
             this.indices = indices;

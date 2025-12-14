@@ -9,6 +9,7 @@ export class PlaneGeometry extends Geometry {
     } = {}) {
         const vertices: number[] = [];
         const normals: number[] = [];
+        const uvs: number[] = [];
         const indices: number[] = [];
 
         const widthHalf = width / 2;
@@ -20,15 +21,18 @@ export class PlaneGeometry extends Geometry {
         const segmentWidth = width / gridX;
         const segmentHeight = height / gridY;
 
-        // Generate vertices and normals
+        // Generate vertices, normals, and UVs
         for (let iy = 0; iy <= gridY; iy++) {
             const z = iy * segmentHeight - heightHalf;
+            const v = iy / gridY;
 
             for (let ix = 0; ix <= gridX; ix++) {
                 const x = ix * segmentWidth - widthHalf;
+                const u = ix / gridX;
 
                 vertices.push(x, 0, z);
-                normals.push(0, 1, 0); // Plane faces +Y direction
+                normals.push(0, 1, 0);
+                uvs.push(u, v);
             }
         }
 
@@ -49,7 +53,8 @@ export class PlaneGeometry extends Geometry {
         super(
             new Float32Array(vertices),
             new Uint32Array(indices),
-            new Float32Array(normals)
+            new Float32Array(normals),
+            new Float32Array(uvs)
         );
     }
 }

@@ -11,11 +11,12 @@ export class CylinderGeometry extends Geometry {
     } = {}) {
         const vertices: number[] = [];
         const normals: number[] = [];
+        const uvs: number[] = [];
         const indices: number[] = [];
 
         const halfHeight = height / 2;
 
-        // Generate vertices and normals for the sides
+        // Generate vertices, normals, and UVs for the sides
         for (let y = 0; y <= heightSegments; y++) {
             const v = y / heightSegments;
             const currentHeight = v * height - halfHeight;
@@ -35,6 +36,8 @@ export class CylinderGeometry extends Geometry {
                 const nx = Math.cos(theta);
                 const nz = Math.sin(theta);
                 normals.push(nx, 0, nz);
+
+                uvs.push(u, v);
             }
         }
 
@@ -54,16 +57,19 @@ export class CylinderGeometry extends Geometry {
         // Generate caps if not open-ended
         if (!openEnded) {
             const topCenterIndex = vertices.length / 3;
-            vertices.push(0, halfHeight, 0); // Top center
-            normals.push(0, 1, 0); // Normal points up
+            vertices.push(0, halfHeight, 0);
+            normals.push(0, 1, 0);
+            uvs.push(0.5, 0.5);
 
             // Top cap vertices
             for (let x = 0; x <= radialSegments; x++) {
-                const theta = (x / radialSegments) * Math.PI * 2;
+                const u = x / radialSegments;
+                const theta = u * Math.PI * 2;
                 const px = radiusTop * Math.cos(theta);
                 const pz = radiusTop * Math.sin(theta);
                 vertices.push(px, halfHeight, pz);
                 normals.push(0, 1, 0);
+                uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
             }
 
             // Top cap indices
@@ -76,15 +82,18 @@ export class CylinderGeometry extends Geometry {
 
             // Bottom cap
             const bottomCenterIndex = vertices.length / 3;
-            vertices.push(0, -halfHeight, 0); // Bottom center
-            normals.push(0, -1, 0); // Normal points down
+            vertices.push(0, -halfHeight, 0);
+            normals.push(0, -1, 0);
+            uvs.push(0.5, 0.5);
 
             for (let x = 0; x <= radialSegments; x++) {
-                const theta = (x / radialSegments) * Math.PI * 2;
+                const u = x / radialSegments;
+                const theta = u * Math.PI * 2;
                 const px = radiusBottom * Math.cos(theta);
                 const pz = radiusBottom * Math.sin(theta);
                 vertices.push(px, -halfHeight, pz);
                 normals.push(0, -1, 0);
+                uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
             }
 
             // Bottom cap indices
@@ -99,7 +108,8 @@ export class CylinderGeometry extends Geometry {
         super(
             new Float32Array(vertices),
             new Uint32Array(indices),
-            new Float32Array(normals)
+            new Float32Array(normals),
+            new Float32Array(uvs)
         );
     }
 }

@@ -6,6 +6,7 @@ import { ShadowRenderPhase } from "./ShadowRenderPhase";
 import { CullingComputePhase } from "./CullingComputePhase";
 import { BatchManager } from "./BatchManager";
 import { DirectionalLight } from "../light/DirectionalLight";
+import { TextureManager } from "../material/TextureManager";
 
 export const ShadowType = {
     Basic: 0,
@@ -35,6 +36,7 @@ export class Renderer {
 
     private lightingManager!: LightingManager;
     private batchManager!: BatchManager;
+    private textureManager!: TextureManager;
     private mainPhase!: MainRenderPhase;
     private shadowPhase!: ShadowRenderPhase;
     private cullingPhase!: CullingComputePhase;
@@ -124,6 +126,9 @@ export class Renderer {
         // Create batch manager (now handles unified camera buffer)
         this.batchManager = new BatchManager(this.device);
 
+        // Create texture manager
+        this.textureManager = new TextureManager(this.device);
+
         // Create culling phase and link to batch manager
         this.cullingPhase = new CullingComputePhase(this.device);
         this.cullingPhase.setBatchManager(this.batchManager);
@@ -140,6 +145,7 @@ export class Renderer {
             this.device,
             this.lightingManager,
             this.batchManager,
+            this.textureManager,
             this.context,
             this.depthTextureView,
             this.msaaTextureView,
@@ -178,6 +184,7 @@ export class Renderer {
                     this.device,
                     this.lightingManager,
                     this.batchManager,
+                    this.textureManager,
                     this.context,
                     this.depthTextureView,
                     this.msaaTextureView,
@@ -269,6 +276,7 @@ export class Renderer {
     public dispose() {
         this.lightingManager?.dispose();
         this.batchManager?.dispose();
+        this.textureManager?.dispose();
         this.shadowPhase?.dispose?.();
         this.mainPhase?.dispose?.();
 

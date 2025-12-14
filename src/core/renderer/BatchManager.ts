@@ -46,6 +46,7 @@ export interface BatchStats {
 export interface GeometryData {
     vertexBuffer: GPUBuffer;
     normalBuffer: GPUBuffer | null;
+    uvBuffer: GPUBuffer | null;
     indexBuffer: GPUBuffer | null;
 }
 
@@ -240,6 +241,16 @@ export class BatchManager {
             this.device.queue.writeBuffer(normalBuffer, 0, dummyNormals);
         }
 
+        let uvBuffer: GPUBuffer | null = null;
+        if (geometry.uvs) {
+            uvBuffer = this.device.createBuffer({
+                label: `UV Buffer for Geometry ${geometry.id}`,
+                size: geometry.uvs.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            });
+            this.device.queue.writeBuffer(uvBuffer, 0, geometry.uvs as GPUAllowSharedBufferSource);
+        }
+
         let indexBuffer: GPUBuffer | null = null;
         if (geometry.indices) {
             indexBuffer = this.device.createBuffer({
@@ -250,7 +261,7 @@ export class BatchManager {
             this.device.queue.writeBuffer(indexBuffer, 0, geometry.indices as GPUAllowSharedBufferSource);
         }
 
-        const data: GeometryData = { vertexBuffer, normalBuffer, indexBuffer };
+        const data: GeometryData = { vertexBuffer, normalBuffer, uvBuffer, indexBuffer };
         this.geometryCache.set(geometry.id, data);
         return data;
     }

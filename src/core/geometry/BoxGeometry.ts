@@ -11,9 +11,11 @@ export class BoxGeometry extends Geometry {
 
         const vertices = new Float32Array(vertexCount * 3);
         const normals = new Float32Array(vertexCount * 3);
+        const uvs = new Float32Array(vertexCount * 2);
         const indices = new Uint32Array(indexCount);
 
         let vOffset = 0;
+        let uvOffset = 0;
         let iOffset = 0;
         let vertexIndex = 0;
 
@@ -28,6 +30,9 @@ export class BoxGeometry extends Geometry {
             vOffset += 12;
 
             for (let i = 0; i < 4; i++) normals.set(normal, (vertexIndex + i) * 3);
+
+            uvs.set([0, 0, 1, 0, 1, 1, 0, 1], uvOffset);
+            uvOffset += 8;
 
             indices.set([
                 vertexIndex, vertexIndex + 1, vertexIndex + 2,
@@ -74,6 +79,6 @@ export class BoxGeometry extends Geometry {
             [0, -1, 0]
         );
 
-        super(vertices, indices, normals);
+        super(vertices, indices, normals, uvs);
     }
 }

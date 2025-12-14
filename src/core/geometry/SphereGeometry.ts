@@ -8,9 +8,10 @@ export class SphereGeometry extends Geometry {
         heightSegments = 16,
     } = {}) {
         const vertices: number[] = [];
+        const uvs: number[] = [];
         const indices: number[] = [];
 
-        // Generate vertices
+        // Generate vertices and UVs
         for (let y = 0; y <= heightSegments; y++) {
             const v = y / heightSegments;
             const phi = v * Math.PI;
@@ -24,6 +25,7 @@ export class SphereGeometry extends Geometry {
                 const pz = radius * Math.sin(theta) * Math.sin(phi);
 
                 vertices.push(px, py, pz);
+                uvs.push(u, v);
             }
         }
 
@@ -51,6 +53,11 @@ export class SphereGeometry extends Geometry {
             normals.push(n.x, n.y, n.z);
         }
 
-        super(new Float32Array(vertices), new Uint32Array(indices), new Float32Array(normals));
+        super(
+            new Float32Array(vertices),
+            new Uint32Array(indices),
+            new Float32Array(normals),
+            new Float32Array(uvs)
+        );
     }
 }

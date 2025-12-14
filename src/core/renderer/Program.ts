@@ -12,6 +12,14 @@ export interface ProgramOptions {
     bindGroupLayouts?: GPUBindGroupLayout[];
     // Whether to use position-only vertex buffer (no normals)
     positionOnly?: boolean;
+    // Whether to include UV coordinates (slot 2)
+    hasUVs?: boolean;
+    // Blend state for transparency
+    blend?: GPUBlendState;
+    // Whether to write to depth buffer
+    depthWrite?: boolean;
+    // Face culling mode
+    cullMode?: GPUCullMode;
 }
 
 export class Program {
@@ -30,44 +38,47 @@ export class Program {
         });
 
         // Determine vertex buffer layout based on options
-        const vertexBuffers: GPUVertexBufferLayout[] = options.positionOnly
-            ? [
-                // Position buffer only
+        const vertexBuffers: GPUVertexBufferLayout[] = [];
+
+        // Position buffer (always present)
+        vertexBuffers.push({
+            arrayStride: 3 * 4,
+            attributes: [
                 {
-                    arrayStride: 3 * 4,
-                    attributes: [
-                        {
-                            shaderLocation: 0,
-                            offset: 0,
-                            format: "float32x3",
-                        },
-                    ],
+                    shaderLocation: 0,
+                    offset: 0,
+                    format: "float32x3",
                 },
-            ]
-            : [
-                // Position buffer
-                {
-                    arrayStride: 3 * 4,
-                    attributes: [
-                        {
-                            shaderLocation: 0,
-                            offset: 0,
-                            format: "float32x3",
-                        },
-                    ],
-                },
-                // Normal buffer
-                {
-                    arrayStride: 3 * 4,
-                    attributes: [
-                        {
-                            shaderLocation: 1,
-                            offset: 0,
-                            format: "float32x3",
-                        },
-                    ],
-                },
-            ];
+            ],
+        });
+
+        // Normal buffer (unless position-only)
+        if (!options.positionOnly) {
+            vertexBuffers.push({
+                arrayStride: 3 * 4,
+                attributes: [
+                    {
+                        shaderLocation: 1,
+                        offset: 0,
+                        format: "float32x3",
+                    },
+                ],
+            });
+        }
+
+        // UV buffer (if requested)
+        if (options.hasUVs) {
+            vertexBuffers.push({
+                arrayStride: 2 * 4,
+                attributes: [
+                    {
+                        shaderLocation: 2,
+                        offset: 0,
+                        format: "float32x2",
+                    },
+                ],
+            });
+        }
 
         // Determine pipeline layout
         let layout: GPUPipelineLayout | "auto" = "auto";
@@ -77,6 +88,14 @@ export class Program {
                 label: "Explicit Pipeline Layout",
                 bindGroupLayouts: options.bindGroupLayouts,
             });
+        }
+
+        // Build fragment target with optional blend state
+        const fragmentTarget: GPUColorTargetState = {
+            format: navigator.gpu.getPreferredCanvasFormat(),
+        };
+        if (options.blend) {
+            fragmentTarget.blend = options.blend;
         }
 
         this.pipeline = device.createRenderPipeline({
@@ -90,10 +109,10 @@ export class Program {
             fragment: {
                 module: fragmentModule,
                 entryPoint: options.fragment.entryPoint || "main",
-                targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+                targets: [fragmentTarget],
             },
             depthStencil: {
-                depthWriteEnabled: true,
+                depthWriteEnabled: options.depthWrite !== false,
                 depthCompare: "less",
                 format: "depth24plus",
             },

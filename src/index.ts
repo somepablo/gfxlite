@@ -14,5 +14,8 @@ export { ConeGeometry } from "./core/geometry/ConeGeometry";
 export { Mesh } from "./core/object/Mesh";
 export { PhongMaterial } from "./core/material/PhongMaterial";
 export { LambertMaterial } from "./core/material/LambertMaterial";
+export { StandardMaterial } from "./core/material/StandardMaterial";
+export { Texture } from "./core/material/Texture";
+export { BlendMode } from "./core/material/Material";
 export { Light } from "./core/light/Light";
 export { DirectionalLight } from "./core/light/DirectionalLight";

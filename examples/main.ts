@@ -17,6 +17,7 @@ import {
     DirectionalLight,
     ShadowType,
     LambertMaterial,
+    StandardMaterial,
 } from "../src";
 import { Vector3, Euler } from "../src/math";
 
@@ -97,7 +98,13 @@ sphere.castShadow = true;
 sphere.receiveShadow = true;
 scene.add(sphere);
 
-const sphere2 = new Mesh(sphereGeometry, greenMaterial);
+const goldMaterial = new StandardMaterial({
+    baseColor: new Vector3(1, 0.82, 0.36),
+    roughness: 0.1,
+    metallic: 0.9,
+});
+
+const sphere2 = new Mesh(sphereGeometry, goldMaterial);
 sphere2.position.set(-2, -1, 0);
 sphere2.scale.set(0.5, 0.5, 0.5);
 sphere2.castShadow = true;

@@ -5,19 +5,37 @@ import { Mesh } from "../object/Mesh";
 import { PhongMaterial } from "../material/PhongMaterial";
 import { LambertMaterial } from "../material/LambertMaterial";
 import { BasicMaterial } from "../material/BasicMaterial";
+import { StandardMaterial } from "../material/StandardMaterial";
 import type { LightingManager } from "./LightingManager";
 import type { BatchManager, DrawBatch } from "./BatchManager";
+import type { TextureManager } from "../material/TextureManager";
 import type { Material } from "../material/Material";
 import { Program } from "./Program";
+import { Vector3 } from "../../math";
 
 interface IndirectPipelineData {
     program: Program;
     lightingBindGroup: GPUBindGroup | null;
 }
 
+// Alpha blend state for transparent materials
+const ALPHA_BLEND_STATE: GPUBlendState = {
+    color: {
+        srcFactor: "src-alpha",
+        dstFactor: "one-minus-src-alpha",
+        operation: "add",
+    },
+    alpha: {
+        srcFactor: "one",
+        dstFactor: "one-minus-src-alpha",
+        operation: "add",
+    },
+};
+
 export class MainRenderPhase extends RenderPhase {
     private lightingManager: LightingManager;
     private batchManager: BatchManager;
+    private textureManager: TextureManager;
     private context: GPUCanvasContext;
     private depthTextureView: GPUTextureView;
     private msaaTextureView: GPUTextureView | null;
@@ -26,12 +44,19 @@ export class MainRenderPhase extends RenderPhase {
     private renderList: Mesh[] = [];
     private batches: DrawBatch[] = [];
 
-    // Indirect pipeline cache by material constructor name
+    // Camera position for transparent sorting
+    private cameraPosition: Vector3 = new Vector3();
+
+    // Indirect pipeline cache by material type + transparency
     private indirectPipelineCache = new Map<string, IndirectPipelineData>();
 
     // Bind group layouts for indirect rendering
     private materialBindGroupLayout: GPUBindGroupLayout | null = null;
     private lightingBindGroupLayout: GPUBindGroupLayout | null = null;
+    private textureBindGroupLayout: GPUBindGroupLayout | null = null;
+
+    // Texture bind group cache
+    private textureBindGroupCache = new Map<number, GPUBindGroup>();
 
     public debugInfo = {
         calls: 0,
@@ -43,6 +68,7 @@ export class MainRenderPhase extends RenderPhase {
         device: GPUDevice,
         lightingManager: LightingManager,
         batchManager: BatchManager,
+        textureManager: TextureManager,
         context: GPUCanvasContext,
         depthTextureView: GPUTextureView,
         msaaTextureView: GPUTextureView | null,
@@ -51,6 +77,7 @@ export class MainRenderPhase extends RenderPhase {
         super(device, "Main Render Phase");
         this.lightingManager = lightingManager;
         this.batchManager = batchManager;
+        this.textureManager = textureManager;
         this.context = context;
         this.depthTextureView = depthTextureView;
         this.msaaTextureView = msaaTextureView;
@@ -96,19 +123,38 @@ export class MainRenderPhase extends RenderPhase {
                 },
             ],
         });
+
+        // Texture bind group layout (group 3) for PBR materials
+        this.textureBindGroupLayout = this.device.createBindGroupLayout({
+            label: "PBR Texture Bind Group Layout",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // baseColorMap
+                { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // normalMap
+                { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // metallicRoughnessMap
+                { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // emissiveMap
+                { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // aoMap
+                { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },   // sampler
+            ],
+        });
     }
 
     private getIndirectPipeline(material: Material): IndirectPipelineData {
         const materialType = material.constructor.name;
+        const isTransparent = material.transparent;
+        const isStandard = material instanceof StandardMaterial;
 
-        let pipelineData = this.indirectPipelineCache.get(materialType);
+        // Cache key includes transparency state for separate pipelines
+        const cacheKey = `${materialType}_${isTransparent ? "transparent" : "opaque"}`;
+
+        let pipelineData = this.indirectPipelineCache.get(cacheKey);
         if (pipelineData) {
             return pipelineData;
         }
 
         const needsLighting =
             material instanceof PhongMaterial ||
-            material instanceof LambertMaterial;
+            material instanceof LambertMaterial ||
+            material instanceof StandardMaterial;
 
         // Build bind group layouts array
         const bindGroupLayouts: GPUBindGroupLayout[] = [
@@ -120,13 +166,20 @@ export class MainRenderPhase extends RenderPhase {
             bindGroupLayouts.push(this.lightingBindGroupLayout!); // Group 2: lighting
         }
 
-        // Create the program
+        if (isStandard) {
+            bindGroupLayouts.push(this.textureBindGroupLayout!); // Group 3: textures
+        }
+
+        // Create the program with appropriate options
         const program = new Program(this.device, {
             vertex: { code: material.getVertexShader() },
             fragment: { code: material.getFragmentShader() },
             multisample: { count: this.sampleCount },
             bindGroupLayouts,
             positionOnly: material instanceof BasicMaterial,
+            hasUVs: isStandard,
+            blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
+            depthWrite: !isTransparent,
         });
 
         // Create lighting bind group if needed
@@ -136,7 +189,7 @@ export class MainRenderPhase extends RenderPhase {
         }
 
         pipelineData = { program, lightingBindGroup };
-        this.indirectPipelineCache.set(materialType, pipelineData);
+        this.indirectPipelineCache.set(cacheKey, pipelineData);
 
         return pipelineData;
     }
@@ -168,11 +221,14 @@ export class MainRenderPhase extends RenderPhase {
         }
     }
 
-    prepare(scene: Scene, _camera: Camera): void {
+    prepare(scene: Scene, camera: Camera): void {
         this.renderList = [];
         this.debugInfo.calls = 0;
         this.debugInfo.triangles = 0;
         this.debugInfo.batches = 0;
+
+        // Store camera position for transparent sorting
+        this.cameraPosition.copy(camera.position);
 
         // Collect meshes
         scene.traverse((object) => {
@@ -189,12 +245,67 @@ export class MainRenderPhase extends RenderPhase {
     execute(commandEncoder: GPUCommandEncoder): void {
         if (this.batches.length === 0) return;
 
+        // Separate batches into opaque and transparent
+        const opaqueBatches: DrawBatch[] = [];
+        const transparentBatches: DrawBatch[] = [];
+
+        for (const batch of this.batches) {
+            if (batch.material.transparent) {
+                transparentBatches.push(batch);
+            } else {
+                opaqueBatches.push(batch);
+            }
+        }
+
+        // Sort transparent batches back-to-front
+        if (transparentBatches.length > 0) {
+            this.sortTransparentBatches(transparentBatches);
+        }
+
         const textureView = this.context.getCurrentTexture().createView();
+
+        // Render opaque pass
+        this.renderBatches(commandEncoder, opaqueBatches, textureView, "clear");
+
+        // Render transparent pass
+        if (transparentBatches.length > 0) {
+            this.renderBatches(commandEncoder, transparentBatches, textureView, "load");
+        }
+    }
+
+    private sortTransparentBatches(batches: DrawBatch[]): void {
+        batches.sort((a, b) => {
+            const distA = this.getBatchCentroidDistance(a);
+            const distB = this.getBatchCentroidDistance(b);
+            return distB - distA; // Back to front
+        });
+    }
+
+    private getBatchCentroidDistance(batch: DrawBatch): number {
+        // Average distance of all mesh centroids in batch
+        let totalDist = 0;
+        for (const mesh of batch.meshes) {
+            const pos = mesh.worldMatrix.extractPosition();
+            const dx = pos.x - this.cameraPosition.x;
+            const dy = pos.y - this.cameraPosition.y;
+            const dz = pos.z - this.cameraPosition.z;
+            totalDist += Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+        return totalDist / batch.meshes.length;
+    }
+
+    private renderBatches(
+        commandEncoder: GPUCommandEncoder,
+        batches: DrawBatch[],
+        textureView: GPUTextureView,
+        loadOp: "clear" | "load"
+    ): void {
+        if (batches.length === 0) return;
 
         const colorAttachment: GPURenderPassColorAttachment = {
             view: this.sampleCount > 1 ? this.msaaTextureView! : textureView,
             clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
-            loadOp: "clear",
+            loadOp,
             storeOp: this.sampleCount > 1 ? "discard" : "store",
         };
 
@@ -203,27 +314,30 @@ export class MainRenderPhase extends RenderPhase {
         }
 
         const passEncoder = commandEncoder.beginRenderPass({
-            label: "Main Render Pass (Indirect)",
+            label: `Main Render Pass (${loadOp})`,
             colorAttachments: [colorAttachment],
             depthStencilAttachment: {
                 view: this.depthTextureView,
                 depthClearValue: 1.0,
-                depthLoadOp: "clear",
-                depthStoreOp: "discard",
+                depthLoadOp: loadOp,
+                depthStoreOp: "store",
             },
         });
 
         let currentPipeline: GPURenderPipeline | null = null;
-        let currentMaterialType: string | null = null;
+        let currentPipelineKey: string | null = null;
 
-        for (const batch of this.batches) {
-            const materialType = batch.material.constructor.name;
-            const pipelineData = this.getIndirectPipeline(batch.material);
+        for (const batch of batches) {
+            const material = batch.material;
+            const isTransparent = material.transparent;
+            const isStandard = material instanceof StandardMaterial;
+            const pipelineKey = `${material.constructor.name}_${isTransparent ? "transparent" : "opaque"}`;
+            const pipelineData = this.getIndirectPipeline(material);
             const geometryData = this.batchManager.getGeometryData(batch.geometry);
 
             // Set pipeline if changed
-            if (materialType !== currentMaterialType) {
-                currentMaterialType = materialType;
+            if (pipelineKey !== currentPipelineKey) {
+                currentPipelineKey = pipelineKey;
                 currentPipeline = pipelineData.program.pipeline;
                 passEncoder.setPipeline(currentPipeline);
 
@@ -239,15 +353,24 @@ export class MainRenderPhase extends RenderPhase {
 
             // Set material bind group (group 1)
             const materialBindGroup = this.getMaterialBindGroup(
-                batch.material,
+                material,
                 pipelineData.program
             );
             passEncoder.setBindGroup(1, materialBindGroup);
 
+            // Set texture bind group (group 3) for StandardMaterial
+            if (isStandard) {
+                const textureBindGroup = this.getTextureBindGroup(material as StandardMaterial);
+                passEncoder.setBindGroup(3, textureBindGroup);
+            }
+
             // Set vertex buffers
             passEncoder.setVertexBuffer(0, geometryData.vertexBuffer);
-            if (geometryData.normalBuffer && !(batch.material instanceof BasicMaterial)) {
+            if (geometryData.normalBuffer && !(material instanceof BasicMaterial)) {
                 passEncoder.setVertexBuffer(1, geometryData.normalBuffer);
+            }
+            if (isStandard && geometryData.uvBuffer) {
+                passEncoder.setVertexBuffer(2, geometryData.uvBuffer);
             }
 
             // Draw using indirect buffer at offset 0 (main camera)
@@ -265,6 +388,56 @@ export class MainRenderPhase extends RenderPhase {
         }
 
         passEncoder.end();
+    }
+
+    private getTextureBindGroup(material: StandardMaterial): GPUBindGroup {
+        let bindGroup = this.textureBindGroupCache.get(material.id);
+
+        if (!bindGroup || material.needsUpdate) {
+            const tm = this.textureManager;
+
+            bindGroup = this.device.createBindGroup({
+                label: `PBR Texture Bind Group ${material.id}`,
+                layout: this.textureBindGroupLayout!,
+                entries: [
+                    {
+                        binding: 0,
+                        resource: material.baseColorMap
+                            ? tm.uploadTexture(material.baseColorMap)
+                            : tm.dummyWhiteTexture,
+                    },
+                    {
+                        binding: 1,
+                        resource: material.normalMap
+                            ? tm.uploadTexture(material.normalMap)
+                            : tm.dummyNormalTexture,
+                    },
+                    {
+                        binding: 2,
+                        resource: material.metallicRoughnessMap
+                            ? tm.uploadTexture(material.metallicRoughnessMap)
+                            : tm.dummyWhiteTexture,
+                    },
+                    {
+                        binding: 3,
+                        resource: material.emissiveMap
+                            ? tm.uploadTexture(material.emissiveMap)
+                            : tm.dummyBlackTexture,
+                    },
+                    {
+                        binding: 4,
+                        resource: material.aoMap
+                            ? tm.uploadTexture(material.aoMap)
+                            : tm.dummyWhiteTexture,
+                    },
+                    { binding: 5, resource: tm.defaultSampler },
+                ],
+            });
+
+            this.textureBindGroupCache.set(material.id, bindGroup);
+        }
+
+        return bindGroup;
     }
 
     private materialBindGroupCache = new Map<number, GPUBindGroup>();
@@ -312,5 +485,6 @@ export class MainRenderPhase extends RenderPhase {
         }
         this.materialBufferCache.clear();
         this.materialBindGroupCache.clear();
+        this.textureBindGroupCache.clear();
     }
 }

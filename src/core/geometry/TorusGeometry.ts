@@ -9,13 +9,16 @@ export class TorusGeometry extends Geometry {
     } = {}) {
         const vertices: number[] = [];
         const normals: number[] = [];
+        const uvs: number[] = [];
         const indices: number[] = [];
 
-        // Generate vertices and normals
+        // Generate vertices, normals, and UVs
         for (let j = 0; j <= radialSegments; j++) {
+            const vCoord = j / radialSegments;
             for (let i = 0; i <= tubularSegments; i++) {
-                const u = (i / tubularSegments) * Math.PI * 2;
-                const v = (j / radialSegments) * Math.PI * 2;
+                const uCoord = i / tubularSegments;
+                const u = uCoord * Math.PI * 2;
+                const v = vCoord * Math.PI * 2;
 
                 const x = (radius + tube * Math.cos(v)) * Math.cos(u);
                 const y = (radius + tube * Math.cos(v)) * Math.sin(u);
@@ -34,6 +37,8 @@ export class TorusGeometry extends Geometry {
 
                 const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
                 normals.push(nx / len, ny / len, nz / len);
+
+                uvs.push(uCoord, vCoord);
             }
         }
 
@@ -53,7 +58,8 @@ export class TorusGeometry extends Geometry {
         super(
             new Float32Array(vertices),
             new Uint32Array(indices),
-            new Float32Array(normals)
+            new Float32Array(normals),
+            new Float32Array(uvs)
         );
     }
 }

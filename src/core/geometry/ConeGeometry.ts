@@ -10,11 +10,12 @@ export class ConeGeometry extends Geometry {
     } = {}) {
         const vertices: number[] = [];
         const normals: number[] = [];
+        const uvs: number[] = [];
         const indices: number[] = [];
 
         const halfHeight = height / 2;
 
-        // Generate vertices and normals for the sides (tip to base)
+        // Generate vertices, normals, and UVs for the sides (tip to base)
         for (let y = 0; y <= heightSegments; y++) {
             const v = y / heightSegments;
             const currentHeight = v * height - halfHeight;
@@ -37,6 +38,8 @@ export class ConeGeometry extends Geometry {
                 const ny = radius / height;
                 const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
                 normals.push(nx / len, ny / len, nz / len);
+
+                uvs.push(u, v);
             }
         }
 
@@ -56,8 +59,9 @@ export class ConeGeometry extends Geometry {
         // Generate base cap if not open-ended
         if (!openEnded) {
             const baseCenterIndex = vertices.length / 3;
-            vertices.push(0, -halfHeight, 0); // Base center
-            normals.push(0, -1, 0); // Normal points down
+            vertices.push(0, -halfHeight, 0);
+            normals.push(0, -1, 0);
+            uvs.push(0.5, 0.5);
 
             for (let x = 0; x <= radialSegments; x++) {
                 const theta = (x / radialSegments) * Math.PI * 2;
@@ -65,6 +69,7 @@ export class ConeGeometry extends Geometry {
                 const pz = radius * Math.sin(theta);
                 vertices.push(px, -halfHeight, pz);
                 normals.push(0, -1, 0);
+                uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
             }
 
             // Base cap indices
@@ -79,7 +84,8 @@ export class ConeGeometry extends Geometry {
         super(
             new Float32Array(vertices),
             new Uint32Array(indices),
-            new Float32Array(normals)
+            new Float32Array(normals),
+            new Float32Array(uvs)
         );
     }
 }
