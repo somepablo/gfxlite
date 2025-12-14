@@ -621,6 +621,50 @@ export class Matrix4 {
         return this;
     }
 
+    decompose(position: Vector3, quaternion: Quaternion, scale: Vector3) {
+        const te = this.elements;
+
+        let sx = new Vector3(te[0], te[1], te[2]).length();
+        const sy = new Vector3(te[4], te[5], te[6]).length();
+        const sz = new Vector3(te[8], te[9], te[10]).length();
+
+        // if determine is negative, we need to invert one scale
+        const det = this.determinant();
+        if (det < 0) sx = -sx;
+
+        position.x = te[12];
+        position.y = te[13];
+        position.z = te[14];
+
+        // scale
+        scale.x = sx;
+        scale.y = sy;
+        scale.z = sz;
+
+        // rotation
+        const invSX = 1 / sx;
+        const invSY = 1 / sy;
+        const invSZ = 1 / sz;
+
+        const m = new Matrix4();
+        m.copy(this);
+        const me = m.elements;
+
+        me[0] *= invSX;
+        me[1] *= invSX;
+        me[2] *= invSX;
+        me[4] *= invSY;
+        me[5] *= invSY;
+        me[6] *= invSY;
+        me[8] *= invSZ;
+        me[9] *= invSZ;
+        me[10] *= invSZ;
+
+        quaternion.setFromRotationMatrix(m.extractRotation());
+
+        return this;
+    }
+
     perspective(fov: number, aspect: number, near: number, far: number) {
         const f = 1.0 / Math.tan(fov / 2);
         const nf = 1 / (near - far);

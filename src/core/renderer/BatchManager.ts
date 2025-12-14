@@ -47,6 +47,7 @@ export interface GeometryData {
     vertexBuffer: GPUBuffer;
     normalBuffer: GPUBuffer | null;
     uvBuffer: GPUBuffer | null;
+    tangentBuffer: GPUBuffer | null;
     indexBuffer: GPUBuffer | null;
 }
 
@@ -251,6 +252,25 @@ export class BatchManager {
             this.device.queue.writeBuffer(uvBuffer, 0, geometry.uvs as GPUAllowSharedBufferSource);
         }
 
+        let tangentBuffer: GPUBuffer | null = null;
+        if (geometry.tangents) {
+            tangentBuffer = this.device.createBuffer({
+                label: `Tangent Buffer for Geometry ${geometry.id}`,
+                size: geometry.tangents.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            });
+            this.device.queue.writeBuffer(tangentBuffer, 0, geometry.tangents as GPUAllowSharedBufferSource);
+        } else {
+            // Dummy tangents (vec4)
+            const dummyTangents = new Float32Array(geometry.vertices.length / 3 * 4); // 4 components per vertex
+            tangentBuffer = this.device.createBuffer({
+                label: `Dummy Tangent Buffer for Geometry ${geometry.id}`,
+                size: dummyTangents.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            });
+            this.device.queue.writeBuffer(tangentBuffer, 0, dummyTangents);
+        }
+
         let indexBuffer: GPUBuffer | null = null;
         if (geometry.indices) {
             indexBuffer = this.device.createBuffer({
@@ -261,7 +281,7 @@ export class BatchManager {
             this.device.queue.writeBuffer(indexBuffer, 0, geometry.indices as GPUAllowSharedBufferSource);
         }
 
-        const data: GeometryData = { vertexBuffer, normalBuffer, uvBuffer, indexBuffer };
+        const data: GeometryData = { vertexBuffer, normalBuffer, uvBuffer, tangentBuffer, indexBuffer };
         this.geometryCache.set(geometry.id, data);
         return data;
     }

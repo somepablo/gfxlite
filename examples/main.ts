@@ -11,6 +11,7 @@ import {
     PlaneGeometry,
     Renderer,
     Scene,
+    Object3D,
     SphereGeometry,
     TorusGeometry,
     PhongMaterial,
@@ -18,6 +19,8 @@ import {
     ShadowType,
     LambertMaterial,
     StandardMaterial,
+    Texture,
+    GLTFLoader,
 } from "../src";
 import { Vector3, Euler } from "../src/math";
 
@@ -48,6 +51,28 @@ light2.castShadow = true;
 light2.lookAt(new Vector3(0, 0, 0));
 scene.add(light2);
 
+// Helper to create a checkerboard texture
+function createCheckerboardTextureUrl(width = 512, height = 512, checkSize = 64): string {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return "";
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = '#000000';
+    for (let y = 0; y < height; y += checkSize) {
+        for (let x = 0; x < width; x += checkSize) {
+            if ((x / checkSize + y / checkSize) % 2 === 0) {
+                ctx.fillRect(x, y, checkSize, checkSize);
+            }
+        }
+    }
+    return canvas.toDataURL();
+}
+
 // Create eight different materials
 const orangeMaterial = new LambertMaterial({ color: new Vector3(1.0, 0.5, 0.2) });
 const purpleMaterial = new BasicMaterial({ color: new Vector3(0.6, 0.2, 0.9) });
@@ -62,7 +87,25 @@ const yellowMaterial = new BasicMaterial({ color: new Vector3(0.9, 0.9, 0.2) });
 const redMaterial = new BasicMaterial({ color: new Vector3(0.9, 0.2, 0.2) });
 const cyanMaterial = new BasicMaterial({ color: new Vector3(0.2, 0.9, 0.9) });
 const magentaMaterial = new BasicMaterial({ color: new Vector3(0.9, 0.2, 0.9) });
+const planeMaterial = new PhongMaterial({ 
+    color: new Vector3(0.5, 0.5, 0.5),
+    specular: new Vector3(0.1, 0.1, 0.1),
+    shininess: 10
+});
 
+// Load texture
+Texture.load(createCheckerboardTextureUrl()).then((texture) => {
+    goldMaterial.baseColorMap = texture;
+    purpleMaterial.map = texture;
+    orangeMaterial.map = texture;
+    greenMaterial.map = texture;
+    blueMaterial.map = texture;
+    yellowMaterial.map = texture;
+    redMaterial.map = texture;
+    cyanMaterial.map = texture;
+    magentaMaterial.map = texture;
+    planeMaterial.map = texture;
+});
 // Box
 const boxGeometry = new BoxGeometry({
     width: 1,
@@ -118,11 +161,7 @@ const planeGeometry = new PlaneGeometry({
     widthSegments: 1,
     heightSegments: 1,
 });
-const planeMaterial = new PhongMaterial({ 
-    color: new Vector3(0.5, 0.5, 0.5),
-    specular: new Vector3(0.1, 0.1, 0.1),
-    shininess: 10
-});
+
 const plane = new Mesh(planeGeometry, planeMaterial);
 plane.position.set(0, -2, 0);
 plane.receiveShadow = true;
@@ -172,6 +211,14 @@ const coneGeometry = new ConeGeometry({
 const cone = new Mesh(coneGeometry, magentaMaterial);
 cone.position.set(-7, 0, 0);
 scene.add(cone);
+
+// Load GLTF
+const loader = new GLTFLoader();
+const damagedHelmet = await loader.load("https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DamagedHelmet/glTF-Binary/DamagedHelmet.glb");
+damagedHelmet.position.set(0, 0, 2);
+damagedHelmet.rotation.setFromEuler(new Euler(0, Math.PI, 0));
+damagedHelmet.scale.set(2, 2, 2);
+scene.add(damagedHelmet);
 
 const camera = new PerspectiveCamera(
     60,
@@ -244,6 +291,8 @@ function frame() {
     // Animate box
     box.rotation.setFromEuler(new Euler(0, performance.now() / 1000, 0));
     box.updateLocalMatrix();
+    damagedHelmet.rotation.setFromEuler(new Euler(0, performance.now() / 1000, 0));
+    damagedHelmet.updateLocalMatrix();  
     
     renderer.render(scene, camera);
     

@@ -16,6 +16,8 @@ export interface ProgramOptions {
     hasNormals?: boolean;
     // Whether to include UV coordinates
     hasUVs?: boolean;
+    // Whether to include Tangent coordinates
+    hasTangents?: boolean;
     // Blend state for transparency
     blend?: GPUBlendState;
     // Whether to write to depth buffer
@@ -85,6 +87,20 @@ export class Program {
                         shaderLocation: nextSlot++,
                         offset: 0,
                         format: "float32x2",
+                    },
+                ],
+            });
+        }
+
+        // Tangent buffer (if requested) - slot 2 or 3 depending on previous
+        if (options.hasTangents) {
+            vertexBuffers.push({
+                arrayStride: 4 * 4,
+                attributes: [
+                    {
+                        shaderLocation: nextSlot++,
+                        offset: 0,
+                        format: "float32x4",
                     },
                 ],
             });

@@ -15,6 +15,14 @@ export class Quaternion {
         this.w = w;
     }
 
+    set(x: number, y: number, z: number, w: number) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.w = w;
+        return this;
+    }
+
     copy(q: Quaternion) {
         this.x = q.x;
         this.y = q.y;

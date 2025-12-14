@@ -199,6 +199,7 @@ export class MainRenderPhase extends RenderPhase {
             positionOnly: isBasic && !hasTextures,
             hasNormals: needsNormals,
             hasUVs: needsUVs,
+            hasTangents: isStandard,
             blend: material.transparent ? ALPHA_BLEND_STATE : undefined,
             depthWrite: !material.transparent,
         });
@@ -416,6 +417,11 @@ export class MainRenderPhase extends RenderPhase {
             // Slot 1 or 2: UV (depending on whether normals are present)
             if (needsUVs && geometryData.uvBuffer) {
                 passEncoder.setVertexBuffer(nextSlot++, geometryData.uvBuffer);
+            }
+
+            // Slot 2 or 3: Tangent (for StandardMaterial)
+            if (isStandard && geometryData.tangentBuffer) {
+                passEncoder.setVertexBuffer(nextSlot++, geometryData.tangentBuffer);
             }
 
             // Draw using indirect buffer at offset 0 (main camera)

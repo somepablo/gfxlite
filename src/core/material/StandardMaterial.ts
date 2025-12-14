@@ -154,6 +154,7 @@ struct VertexOutput {
     @location(2) vUV: vec2<f32>,
     @location(3) vCameraPos: vec3<f32>,
     @location(4) vReceiveShadow: f32,
+    @location(5) vTangent: vec4<f32>,
 }
 
 @vertex
@@ -161,7 +162,8 @@ fn main(
     @builtin(instance_index) instanceIndex: u32,
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) uv: vec2<f32>
+    @location(2) uv: vec2<f32>,
+    @location(3) tangent: vec4<f32>
 ) -> VertexOutput {
     let actualIndex = culled.indices[instanceIndex];
     let instance = instances[actualIndex];
@@ -175,6 +177,8 @@ fn main(
     output.vUV = uv;
     output.vCameraPos = cameraUniforms.cameraPosition;
     output.vReceiveShadow = instance.flags.x;
+    // Transform tangent to world space (using model matrix for direction)
+    output.vTangent = vec4<f32>(normalize((instance.modelMatrix * vec4<f32>(tangent.xyz, 0.0)).xyz), tangent.w);
     return output;
 }
         `;
@@ -257,22 +261,34 @@ fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-fn getNormalFromMap(normal: vec3<f32>, worldPos: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
+fn getNormalFromMap(normal: vec3<f32>, tangent: vec4<f32>, worldPos: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
     if (material.flags.y < 0.5) {
         return normal;
     }
 
     let tangentNormal = textureSample(normalMap, texSampler, uv).xyz * 2.0 - 1.0;
 
-    // Compute TBN from derivatives
+    let N = normalize(normal);
+    var T: vec3<f32>;
+    var B: vec3<f32>;
+
+    // Compute derivatives unconditionally to avoid "dpdx must only be called from uniform control flow" error
     let Q1 = dpdx(worldPos);
     let Q2 = dpdy(worldPos);
     let st1 = dpdx(uv);
     let st2 = dpdy(uv);
 
-    let N = normalize(normal);
-    let T = normalize(Q1 * st2.y - Q2 * st1.y);
-    let B = -normalize(cross(N, T));
+    // Use provided tangent if valid (w is +/- 1.0). BatchManager uses 0.0 for dummy tangents.
+    // Note: This condition is non-uniform (varying), but since derivatives are now computed outside, it's safe.
+    if (abs(tangent.w) > 0.5) {
+        T = normalize(tangent.xyz);
+        B = cross(N, T) * tangent.w;
+    } else {
+        // Fallback to derivative-based TBN
+        T = normalize(Q1 * st2.y - Q2 * st1.y);
+        B = -normalize(cross(N, T));
+    }
+
     let TBN = mat3x3<f32>(T, B, N);
 
     return normalize(TBN * (tangentNormal * vec3<f32>(material.props.z, material.props.z, 1.0)));
@@ -326,7 +342,8 @@ fn main(
     @location(1) vNormal: vec3<f32>,
     @location(2) vUV: vec2<f32>,
     @location(3) vCameraPos: vec3<f32>,
-    @location(4) vReceiveShadow: f32
+    @location(4) vReceiveShadow: f32,
+    @location(5) vTangent: vec4<f32>
 ) -> @location(0) vec4<f32> {
     // Sample textures
     var albedo = material.baseColor.rgb;
@@ -364,7 +381,7 @@ fn main(
     }
 
     // Get normal
-    let N = getNormalFromMap(vNormal, vPosition, vUV);
+    let N = getNormalFromMap(vNormal, vTangent, vPosition, vUV);
     let V = normalize(vCameraPos - vPosition);
 
     // Calculate F0 (reflectance at normal incidence)
