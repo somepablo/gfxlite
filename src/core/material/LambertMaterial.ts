@@ -1,22 +1,39 @@
 import { Vector3 } from "../../math";
-import { Material } from "./Material";
+import { Material, MaterialType } from "./Material";
+import type { Texture } from "./Texture";
 
 export interface LambertMaterialOptions {
     color?: Vector3;
+    map?: Texture;
 }
 
 export class LambertMaterial extends Material {
-    constructor({ color = new Vector3(1, 1, 1) }: LambertMaterialOptions = {}) {
+    public readonly materialType = MaterialType.Lambert;
+    public readonly needsLighting = true;
+    public readonly needsNormals = true;
+
+    public map: Texture | null = null;
+
+    constructor({ color = new Vector3(1, 1, 1), map }: LambertMaterialOptions = {}) {
         super();
         this.uniforms.color = color;
+        this.map = map ?? null;
+    }
+
+    hasTextures(): boolean {
+        return !!this.map;
     }
 
     getUniformBufferData(): Float32Array {
         const color = this.uniforms.color as Vector3;
-        return new Float32Array([...color.toArray(), 0]); // Color + padding
+        return new Float32Array([
+            ...color.toArray(),
+            this.map ? 1.0 : 0.0, // hasMap flag
+        ]);
     }
 
     getVertexShader(): string {
+        const hasMap = !!this.map;
         return /* wgsl */ `
       const MAX_CAMERAS: u32 = 5u;
 
@@ -50,14 +67,15 @@ export class LambertMaterial extends Material {
           @builtin(position) position: vec4<f32>,
           @location(0) vPosition: vec3<f32>,
           @location(1) vNormal: vec3<f32>,
-          @location(2) vReceiveShadow: f32,
+          ${hasMap ? "@location(2) vUV: vec2<f32>," : ""}
+          @location(${hasMap ? 3 : 2}) vReceiveShadow: f32,
       }
 
       @vertex
       fn main(
           @builtin(instance_index) instanceIndex: u32,
           @location(0) position: vec3<f32>,
-          @location(1) normal: vec3<f32>
+          @location(1) normal: vec3<f32>${hasMap ? ",\n          @location(2) uv: vec2<f32>" : ""}
       ) -> VertexOutput {
           let actualIndex = culled.indices[instanceIndex];
           let instance = instances[actualIndex];
@@ -68,6 +86,7 @@ export class LambertMaterial extends Material {
           output.position = cameraUniforms.mainViewProjection * worldPos;
           output.vPosition = worldPos.xyz;
           output.vNormal = normalize((instance.normalMatrix * vec4<f32>(normal, 0.0)).xyz);
+          ${hasMap ? "output.vUV = uv;" : ""}
           output.vReceiveShadow = instance.flags.x;
           return output;
       }
@@ -75,9 +94,11 @@ export class LambertMaterial extends Material {
     }
 
     getFragmentShader(): string {
+        const hasMap = !!this.map;
         return /* wgsl */ `
       struct MaterialUniforms {
           color: vec3<f32>,
+          hasMap: f32,
       }
       @group(1) @binding(0) var<uniform> material: MaterialUniforms;
 
@@ -100,16 +121,31 @@ export class LambertMaterial extends Material {
       @group(2) @binding(1) var shadowMap: texture_depth_2d_array;
       @group(2) @binding(2) var shadowSampler: sampler_comparison;
 
+      ${hasMap ? `
+      @group(3) @binding(0) var map: texture_2d<f32>;
+      @group(3) @binding(1) var mapSampler: sampler;
+      ` : ""}
+
       @fragment
       fn main(
           @location(0) vPosition: vec3<f32>,
           @location(1) vNormal: vec3<f32>,
-          @location(2) vReceiveShadow: f32
+          ${hasMap ? "@location(2) vUV: vec2<f32>," : ""}
+          @location(${hasMap ? 3 : 2}) vReceiveShadow: f32
       ) -> @location(0) vec4<f32> {
           let normal = normalize(vNormal);
 
+          // Sample texture if present
+          var baseColor = material.color;
+          var alpha = 1.0;
+          ${hasMap ? `
+          let texColor = textureSample(map, mapSampler, vUV);
+          baseColor *= texColor.rgb;
+          alpha = texColor.a;
+          ` : ""}
+
           // Ambient
-          let ambient = lighting.ambientColor * material.color;
+          let ambient = lighting.ambientColor * baseColor;
 
           // Diffuse
           var diffuse = vec3<f32>(0.0);
@@ -165,10 +201,10 @@ export class LambertMaterial extends Material {
 
               // Diffuse
               let diff = max(dot(normal, lightDir), 0.0);
-              diffuse += diff * light.color * light.intensity * material.color * shadow;
+              diffuse += diff * light.color * light.intensity * baseColor * shadow;
           }
 
-          return vec4<f32>(ambient + diffuse, 1.0);
+          return vec4<f32>(ambient + diffuse, alpha);
       }
     `;
     }

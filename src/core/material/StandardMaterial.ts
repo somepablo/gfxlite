@@ -1,5 +1,5 @@
 import { Vector3 } from "../../math";
-import { Material, BlendMode } from "./Material";
+import { Material, MaterialType, BlendMode } from "./Material";
 import type { Texture } from "./Texture";
 
 export interface StandardMaterialOptions {
@@ -32,6 +32,10 @@ export interface StandardMaterialOptions {
 }
 
 export class StandardMaterial extends Material {
+    public readonly materialType = MaterialType.Standard;
+    public readonly needsLighting = true;
+    public readonly needsNormals = true;
+
     // Textures
     public baseColorMap: Texture | null = null;
     public normalMap: Texture | null = null;

@@ -2,10 +2,11 @@ import { RenderPhase } from "./RenderPhase";
 import type { Scene } from "../scene/Scene";
 import type { Camera } from "../camera/Camera";
 import { Mesh } from "../object/Mesh";
-import { PhongMaterial } from "../material/PhongMaterial";
-import { LambertMaterial } from "../material/LambertMaterial";
 import { BasicMaterial } from "../material/BasicMaterial";
+import { LambertMaterial } from "../material/LambertMaterial";
+import { PhongMaterial } from "../material/PhongMaterial";
 import { StandardMaterial } from "../material/StandardMaterial";
+import { MaterialType } from "../material/Material";
 import type { LightingManager } from "./LightingManager";
 import type { BatchManager, DrawBatch } from "./BatchManager";
 import type { TextureManager } from "../material/TextureManager";
@@ -54,9 +55,11 @@ export class MainRenderPhase extends RenderPhase {
     private materialBindGroupLayout: GPUBindGroupLayout | null = null;
     private lightingBindGroupLayout: GPUBindGroupLayout | null = null;
     private textureBindGroupLayout: GPUBindGroupLayout | null = null;
+    private simpleTextureBindGroupLayout: GPUBindGroupLayout | null = null;
 
     // Texture bind group cache
     private textureBindGroupCache = new Map<number, GPUBindGroup>();
+    private simpleTextureBindGroupCache = new Map<number, GPUBindGroup>();
 
     public debugInfo = {
         calls: 0,
@@ -136,25 +139,32 @@ export class MainRenderPhase extends RenderPhase {
                 { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },   // sampler
             ],
         });
+
+        // Simple texture bind group layout for Basic/Lambert/Phong materials
+        this.simpleTextureBindGroupLayout = this.device.createBindGroupLayout({
+            label: "Simple Texture Bind Group Layout",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // map
+                { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },   // sampler
+            ],
+        });
     }
 
     private getIndirectPipeline(material: Material): IndirectPipelineData {
-        const materialType = material.constructor.name;
-        const isTransparent = material.transparent;
-        const isStandard = material instanceof StandardMaterial;
-
-        // Cache key includes transparency state for separate pipelines
-        const cacheKey = `${materialType}_${isTransparent ? "transparent" : "opaque"}`;
+        // Use cached pipeline key from material
+        const cacheKey = material.getPipelineKey();
 
         let pipelineData = this.indirectPipelineCache.get(cacheKey);
         if (pipelineData) {
             return pipelineData;
         }
 
-        const needsLighting =
-            material instanceof PhongMaterial ||
-            material instanceof LambertMaterial ||
-            material instanceof StandardMaterial;
+        const matType = material.materialType;
+        const isStandard = matType === MaterialType.Standard;
+        const isBasic = matType === MaterialType.Basic;
+        const hasTextures = material.hasTextures();
+        const needsLighting = material.needsLighting;
+        const needsNormals = material.needsNormals;
 
         // Build bind group layouts array
         const bindGroupLayouts: GPUBindGroupLayout[] = [
@@ -167,8 +177,18 @@ export class MainRenderPhase extends RenderPhase {
         }
 
         if (isStandard) {
-            bindGroupLayouts.push(this.textureBindGroupLayout!); // Group 3: textures
+            bindGroupLayouts.push(this.textureBindGroupLayout!); // Group 3: textures (PBR)
+        } else if (hasTextures) {
+            // Simple materials with textures
+            if (isBasic) {
+                bindGroupLayouts.push(this.simpleTextureBindGroupLayout!); // Group 2: textures (no lighting)
+            } else {
+                bindGroupLayouts.push(this.simpleTextureBindGroupLayout!); // Group 3: textures (after lighting)
+            }
         }
+
+        // Determine if UVs are needed
+        const needsUVs = isStandard || hasTextures;
 
         // Create the program with appropriate options
         const program = new Program(this.device, {
@@ -176,10 +196,11 @@ export class MainRenderPhase extends RenderPhase {
             fragment: { code: material.getFragmentShader() },
             multisample: { count: this.sampleCount },
             bindGroupLayouts,
-            positionOnly: material instanceof BasicMaterial,
-            hasUVs: isStandard,
-            blend: isTransparent ? ALPHA_BLEND_STATE : undefined,
-            depthWrite: !isTransparent,
+            positionOnly: isBasic && !hasTextures,
+            hasNormals: needsNormals,
+            hasUVs: needsUVs,
+            blend: material.transparent ? ALPHA_BLEND_STATE : undefined,
+            depthWrite: !material.transparent,
         });
 
         // Create lighting bind group if needed
@@ -327,11 +348,18 @@ export class MainRenderPhase extends RenderPhase {
         let currentPipeline: GPURenderPipeline | null = null;
         let currentPipelineKey: string | null = null;
 
-        for (const batch of batches) {
+        for (let i = 0; i < batches.length; i++) {
+            const batch = batches[i];
             const material = batch.material;
-            const isTransparent = material.transparent;
-            const isStandard = material instanceof StandardMaterial;
-            const pipelineKey = `${material.constructor.name}_${isTransparent ? "transparent" : "opaque"}`;
+
+            // Use cached material properties instead of instanceof checks
+            const matType = material.materialType;
+            const isStandard = matType === MaterialType.Standard;
+            const isBasic = matType === MaterialType.Basic;
+            const hasTextures = material.hasTextures();
+            const needsNormals = material.needsNormals;
+
+            const pipelineKey = material.getPipelineKey();
             const pipelineData = this.getIndirectPipeline(material);
             const geometryData = this.batchManager.getGeometryData(batch.geometry);
 
@@ -358,19 +386,36 @@ export class MainRenderPhase extends RenderPhase {
             );
             passEncoder.setBindGroup(1, materialBindGroup);
 
-            // Set texture bind group (group 3) for StandardMaterial
+            // Set texture bind group for materials with textures
             if (isStandard) {
                 const textureBindGroup = this.getTextureBindGroup(material as StandardMaterial);
                 passEncoder.setBindGroup(3, textureBindGroup);
+            } else if (hasTextures) {
+                const textureBindGroup = this.getSimpleTextureBindGroup(material);
+                // BasicMaterial uses group 2 (no lighting), others use group 3 (after lighting)
+                const textureGroupIndex = isBasic ? 2 : 3;
+                passEncoder.setBindGroup(textureGroupIndex, textureBindGroup);
             }
 
             // Set vertex buffers
+            // Slot 0: position (always)
             passEncoder.setVertexBuffer(0, geometryData.vertexBuffer);
-            if (geometryData.normalBuffer && !(material instanceof BasicMaterial)) {
-                passEncoder.setVertexBuffer(1, geometryData.normalBuffer);
+
+            // Determine buffer layout:
+            // BasicMaterial: position only, or position + UV (no normals)
+            // Others: position + normal, or position + normal + UV
+            const needsUVs = isStandard || hasTextures;
+
+            let nextSlot = 1;
+
+            // Slot 1: normal (for non-Basic materials)
+            if (needsNormals && geometryData.normalBuffer) {
+                passEncoder.setVertexBuffer(nextSlot++, geometryData.normalBuffer);
             }
-            if (isStandard && geometryData.uvBuffer) {
-                passEncoder.setVertexBuffer(2, geometryData.uvBuffer);
+
+            // Slot 1 or 2: UV (depending on whether normals are present)
+            if (needsUVs && geometryData.uvBuffer) {
+                passEncoder.setVertexBuffer(nextSlot++, geometryData.uvBuffer);
             }
 
             // Draw using indirect buffer at offset 0 (main camera)
@@ -440,6 +485,35 @@ export class MainRenderPhase extends RenderPhase {
         return bindGroup;
     }
 
+    private getSimpleTextureBindGroup(material: Material): GPUBindGroup {
+        let bindGroup = this.simpleTextureBindGroupCache.get(material.id);
+
+        if (!bindGroup || material.needsUpdate) {
+            const tm = this.textureManager;
+
+            // Get the map from the material (Basic, Lambert, or Phong)
+            const map = (material as BasicMaterial | LambertMaterial | PhongMaterial).map;
+
+            bindGroup = this.device.createBindGroup({
+                label: `Simple Texture Bind Group ${material.id}`,
+                layout: this.simpleTextureBindGroupLayout!,
+                entries: [
+                    {
+                        binding: 0,
+                        resource: map
+                            ? tm.uploadTexture(map)
+                            : tm.dummyWhiteTexture,
+                    },
+                    { binding: 1, resource: tm.defaultSampler },
+                ],
+            });
+
+            this.simpleTextureBindGroupCache.set(material.id, bindGroup);
+        }
+
+        return bindGroup;
+    }
+
     private materialBindGroupCache = new Map<number, GPUBindGroup>();
     private materialBufferCache = new Map<number, GPUBuffer>();
 
@@ -486,5 +560,6 @@ export class MainRenderPhase extends RenderPhase {
         this.materialBufferCache.clear();
         this.materialBindGroupCache.clear();
         this.textureBindGroupCache.clear();
+        this.simpleTextureBindGroupCache.clear();
     }
 }

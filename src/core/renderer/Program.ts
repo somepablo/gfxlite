@@ -10,9 +10,11 @@ export interface ProgramOptions {
     multisample?: GPUMultisampleState;
     // For indirect rendering with explicit bind group layouts
     bindGroupLayouts?: GPUBindGroupLayout[];
-    // Whether to use position-only vertex buffer (no normals)
+    // Whether to use position-only vertex buffer (no normals, no UVs)
     positionOnly?: boolean;
-    // Whether to include UV coordinates (slot 2)
+    // Whether to include normal coordinates (slot 1) - default true unless positionOnly
+    hasNormals?: boolean;
+    // Whether to include UV coordinates
     hasUVs?: boolean;
     // Blend state for transparency
     blend?: GPUBlendState;
@@ -40,7 +42,7 @@ export class Program {
         // Determine vertex buffer layout based on options
         const vertexBuffers: GPUVertexBufferLayout[] = [];
 
-        // Position buffer (always present)
+        // Position buffer (always present) - slot 0
         vertexBuffers.push({
             arrayStride: 3 * 4,
             attributes: [
@@ -52,13 +54,21 @@ export class Program {
             ],
         });
 
-        // Normal buffer (unless position-only)
-        if (!options.positionOnly) {
+        // Determine if normals are included
+        // Default: normals are included unless positionOnly is true
+        // Can be explicitly controlled with hasNormals
+        const includeNormals = options.hasNormals ?? !options.positionOnly;
+
+        // Track next shader location for dynamic slot assignment
+        let nextSlot = 1;
+
+        // Normal buffer - slot 1 (if included)
+        if (includeNormals) {
             vertexBuffers.push({
                 arrayStride: 3 * 4,
                 attributes: [
                     {
-                        shaderLocation: 1,
+                        shaderLocation: nextSlot++,
                         offset: 0,
                         format: "float32x3",
                     },
@@ -66,13 +76,13 @@ export class Program {
             });
         }
 
-        // UV buffer (if requested)
+        // UV buffer (if requested) - slot 1 or 2 depending on normals
         if (options.hasUVs) {
             vertexBuffers.push({
                 arrayStride: 2 * 4,
                 attributes: [
                     {
-                        shaderLocation: 2,
+                        shaderLocation: nextSlot++,
                         offset: 0,
                         format: "float32x2",
                     },
