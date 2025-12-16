@@ -3,6 +3,7 @@ import type { Scene } from "../scene/Scene";
 import { LightingManager } from "./LightingManager";
 import { MainRenderPhase } from "./MainRenderPhase";
 import { ShadowRenderPhase } from "./ShadowRenderPhase";
+import { DepthPrePhase } from "./DepthPrePhase";
 import { CullingComputePhase } from "./CullingComputePhase";
 import { BatchManager } from "./BatchManager";
 import { DirectionalLight } from "../light/DirectionalLight";
@@ -39,6 +40,7 @@ export class Renderer {
     private textureManager!: TextureManager;
     private mainPhase!: MainRenderPhase;
     private shadowPhase!: ShadowRenderPhase;
+    private depthPrePhase!: DepthPrePhase;
     private cullingPhase!: CullingComputePhase;
 
     private depthTexture!: GPUTexture;
@@ -152,6 +154,14 @@ export class Renderer {
             this.sampleCount
         );
 
+        // Create depth pre-pass phase
+        this.depthPrePhase = new DepthPrePhase(
+            this.device,
+            this.batchManager,
+            this.sampleCount
+        );
+        this.depthPrePhase.setDepthTextureView(this.depthTextureView);
+
         console.log("GFXLite Renderer Initialized");
         this.isInitialized = true;
     }
@@ -190,6 +200,10 @@ export class Renderer {
                     this.msaaTextureView,
                     this.sampleCount
                 );
+            }
+
+            if (this.depthPrePhase) {
+                this.depthPrePhase.setDepthTextureView(this.depthTextureView);
             }
         }
     }
@@ -238,6 +252,11 @@ export class Renderer {
         // Configure shadow phase
         this.shadowPhase.setEnabled(this.shadowsEnabled);
         this.shadowPhase.setLights(lights);
+        // Prepare shadow phase (uses same batches, updates shadow camera bounds)
+        this.shadowPhase.prepare(scene, camera);
+
+        // Prepare depth pre-pass
+        this.depthPrePhase.prepare(scene, camera);
 
         // Prepare main phase (creates batches)
         this.mainPhase.prepare(scene, camera);
@@ -246,22 +265,15 @@ export class Renderer {
         const batches = this.batchManager.getBatches();
         this.batchManager.updateInstanceBuffer(batches);
 
-        // Prepare shadow phase (uses same batches, updates shadow camera bounds)
-        this.shadowPhase.prepare(scene, camera);
-
         // Update unified camera buffer with main camera + all shadow light cameras
         this.batchManager.updateCameraUniforms(camera, shadowLights);
 
         // Create command encoder
         const commandEncoder = this.device.createCommandEncoder();
 
-        // Execute unified culling (single pass for all cameras)
         this.cullingPhase.execute(commandEncoder);
-
-        // Execute shadow rendering
         this.shadowPhase.execute(commandEncoder);
-
-        // Execute main rendering
+        this.depthPrePhase.execute(commandEncoder);
         this.mainPhase.execute(commandEncoder);
 
         // Submit
@@ -278,6 +290,7 @@ export class Renderer {
         this.batchManager?.dispose();
         this.textureManager?.dispose();
         this.shadowPhase?.dispose?.();
+        this.depthPrePhase?.dispose?.();
         this.mainPhase?.dispose?.();
 
         if (this.depthTexture) this.depthTexture.destroy();

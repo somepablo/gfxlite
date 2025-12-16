@@ -191,6 +191,7 @@ export class MainRenderPhase extends RenderPhase {
         const needsUVs = isStandard || hasTextures;
 
         // Create the program with appropriate options
+        // Use "less-equal" to work with depth pre-pass (accepts fragments at same depth)
         const program = new Program(this.device, {
             vertex: { code: material.getVertexShader() },
             fragment: { code: material.getFragmentShader() },
@@ -202,6 +203,7 @@ export class MainRenderPhase extends RenderPhase {
             hasTangents: isStandard,
             blend: material.transparent ? ALPHA_BLEND_STATE : undefined,
             depthWrite: !material.transparent,
+            depthCompare: "less-equal",
         });
 
         // Create lighting bind group if needed
@@ -286,12 +288,12 @@ export class MainRenderPhase extends RenderPhase {
 
         const textureView = this.context.getCurrentTexture().createView();
 
-        // Render opaque pass
-        this.renderBatches(commandEncoder, opaqueBatches, textureView, "clear");
+        // Render opaque pass (depth buffer already populated by depth pre-pass)
+        this.renderBatches(commandEncoder, opaqueBatches, textureView, "clear", "load");
 
         // Render transparent pass
         if (transparentBatches.length > 0) {
-            this.renderBatches(commandEncoder, transparentBatches, textureView, "load");
+            this.renderBatches(commandEncoder, transparentBatches, textureView, "load", "load");
         }
     }
 
@@ -320,14 +322,15 @@ export class MainRenderPhase extends RenderPhase {
         commandEncoder: GPUCommandEncoder,
         batches: DrawBatch[],
         textureView: GPUTextureView,
-        loadOp: "clear" | "load"
+        colorLoadOp: "clear" | "load",
+        depthLoadOp: "clear" | "load"
     ): void {
         if (batches.length === 0) return;
 
         const colorAttachment: GPURenderPassColorAttachment = {
             view: this.sampleCount > 1 ? this.msaaTextureView! : textureView,
             clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
-            loadOp,
+            loadOp: colorLoadOp,
             storeOp: this.sampleCount > 1 ? "discard" : "store",
         };
 
@@ -336,12 +339,12 @@ export class MainRenderPhase extends RenderPhase {
         }
 
         const passEncoder = commandEncoder.beginRenderPass({
-            label: `Main Render Pass (${loadOp})`,
+            label: `Main Render Pass (color: ${colorLoadOp}, depth: ${depthLoadOp})`,
             colorAttachments: [colorAttachment],
             depthStencilAttachment: {
                 view: this.depthTextureView,
                 depthClearValue: 1.0,
-                depthLoadOp: loadOp,
+                depthLoadOp: depthLoadOp,
                 depthStoreOp: "store",
             },
         });

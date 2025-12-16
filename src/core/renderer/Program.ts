@@ -22,6 +22,8 @@ export interface ProgramOptions {
     blend?: GPUBlendState;
     // Whether to write to depth buffer
     depthWrite?: boolean;
+    // Depth comparison function
+    depthCompare?: GPUCompareFunction;
     // Face culling mode
     cullMode?: GPUCullMode;
 }
@@ -139,7 +141,7 @@ export class Program {
             },
             depthStencil: {
                 depthWriteEnabled: options.depthWrite !== false,
-                depthCompare: "less",
+                depthCompare: options.depthCompare ?? "less",
                 format: "depth24plus",
             },
             primitive: {
