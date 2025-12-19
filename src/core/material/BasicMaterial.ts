@@ -1,9 +1,11 @@
 import { Vector3 } from "../../math";
-import { Material, MaterialType } from "./Material";
+import { Material, MaterialType, BlendMode } from "./Material";
 import type { Texture } from "./Texture";
 
 export interface BasicMaterialOptions {
     color?: Vector3;
+    opacity?: number;
+    transparent?: boolean;
     map?: Texture;
 }
 
@@ -14,10 +16,17 @@ export class BasicMaterial extends Material {
 
     public map: Texture | null = null;
 
-    constructor({ color = new Vector3(1, 1, 1), map }: BasicMaterialOptions = {}) {
+    constructor({ color = new Vector3(1, 1, 1), opacity = 1.0, transparent, map }: BasicMaterialOptions = {}) {
         super();
         this.uniforms.color = color;
         this.map = map ?? null;
+        this.opacity = opacity;
+        // Auto-enable transparency if opacity < 1
+        this.transparent = transparent ?? (opacity < 1.0);
+        if (this.transparent) {
+            this.blendMode = BlendMode.AlphaBlend;
+            this.depthWrite = false;
+        }
     }
 
     hasTextures(): boolean {
@@ -26,14 +35,11 @@ export class BasicMaterial extends Material {
 
     getUniformBufferData(): Float32Array {
         const color = this.uniforms.color as Vector3;
-        if (this.map) {
-            return new Float32Array([
-                ...color.toArray(),
-                1.0, // hasMap flag (padding for alignment)
-            ]);
-        } else {
-            return new Float32Array(color.toArray());
-        }
+        // Layout: color (vec3) + opacity (f32) = 16 bytes
+        return new Float32Array([
+            ...color.toArray(),
+            this.opacity,
+        ]);
     }
 
     getVertexShader(): string {
@@ -70,7 +76,7 @@ export class BasicMaterial extends Material {
       @group(0) @binding(2) var<uniform> cameraUniforms: CameraUniforms;
 
       struct VertexOutput {
-          @builtin(position) position: vec4<f32>,
+          @builtin(position) @invariant position: vec4<f32>,
           @location(0) vUV: vec2<f32>,
       }
 
@@ -123,7 +129,7 @@ export class BasicMaterial extends Material {
       fn main(
           @builtin(instance_index) instanceIndex: u32,
           @location(0) position: vec3<f32>
-      ) -> @builtin(position) vec4<f32> {
+      ) -> @invariant @builtin(position) vec4<f32> {
           let actualIndex = culled.indices[instanceIndex];
           let worldPos = instances[actualIndex].modelMatrix * vec4<f32>(position, 1.0);
           return cameraUniforms.mainViewProjection * worldPos;
@@ -139,7 +145,7 @@ export class BasicMaterial extends Material {
             return /* wgsl */ `
       struct MaterialUniforms {
           color: vec3<f32>,
-          hasMap: f32,
+          opacity: f32,
       }
       @group(1) @binding(0) var<uniform> material: MaterialUniforms;
 
@@ -150,16 +156,20 @@ export class BasicMaterial extends Material {
       fn main(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
           let texColor = textureSample(map, mapSampler, vUV);
           let color = material.color * texColor.rgb;
-          return vec4<f32>(color, texColor.a);
+          return vec4<f32>(color, texColor.a * material.opacity);
       }
     `;
         } else {
             return /* wgsl */ `
-      @group(1) @binding(0) var<uniform> color: vec3<f32>;
+      struct MaterialUniforms {
+          color: vec3<f32>,
+          opacity: f32,
+      }
+      @group(1) @binding(0) var<uniform> material: MaterialUniforms;
 
       @fragment
       fn main() -> @location(0) vec4<f32> {
-          return vec4<f32>(color, 1.0);
+          return vec4<f32>(material.color, material.opacity);
       }
     `;
         }

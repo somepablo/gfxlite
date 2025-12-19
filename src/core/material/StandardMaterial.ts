@@ -5,7 +5,7 @@ import type { Texture } from "./Texture";
 export interface StandardMaterialOptions {
     // Base properties
     baseColor?: Vector3;
-    alpha?: number;
+    opacity?: number;
     metallic?: number;
     roughness?: number;
 
@@ -48,7 +48,6 @@ export class StandardMaterial extends Material {
 
         // Set defaults
         this.uniforms.baseColor = options.baseColor ?? new Vector3(1, 1, 1);
-        this.uniforms.alpha = options.alpha ?? 1.0;
         this.uniforms.metallic = options.metallic ?? 0.0;
         this.uniforms.roughness = options.roughness ?? 0.5;
         this.uniforms.emissive = options.emissive ?? new Vector3(0, 0, 0);
@@ -63,9 +62,15 @@ export class StandardMaterial extends Material {
         this.emissiveMap = options.emissiveMap ?? null;
         this.aoMap = options.aoMap ?? null;
 
+        // Opacity (use base class property)
+        this.opacity = options.opacity ?? 1.0;
+
         // Transparency
-        this.transparent = options.transparent ?? false;
-        this.blendMode = options.blendMode ?? BlendMode.Opaque;
+        // Auto-enable if opacity < 1 or blendMode is AlphaBlend
+        const explicitTransparent = options.transparent ?? false;
+        const implicitTransparent = this.opacity < 1.0 || options.blendMode === BlendMode.AlphaBlend;
+        this.transparent = explicitTransparent || implicitTransparent;
+        this.blendMode = options.blendMode ?? (this.transparent ? BlendMode.AlphaBlend : BlendMode.Opaque);
         this.alphaCutoff = options.alphaCutoff ?? 0.5;
         this.doubleSided = options.doubleSided ?? false;
         this.depthWrite = !this.transparent;
@@ -95,7 +100,7 @@ export class StandardMaterial extends Material {
         return new Float32Array([
             // baseColor (vec4)
             ...baseColor.toArray(),
-            this.uniforms.alpha as number,
+            this.opacity,
             // emissive (vec4)
             ...emissive.toArray(),
             this.uniforms.emissiveFactor as number,
@@ -148,7 +153,7 @@ struct CulledInstances {
 @group(0) @binding(2) var<uniform> cameraUniforms: CameraUniforms;
 
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
+    @builtin(position) @invariant position: vec4<f32>,
     @location(0) vPosition: vec3<f32>,
     @location(1) vNormal: vec3<f32>,
     @location(2) vUV: vec2<f32>,

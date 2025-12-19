@@ -80,8 +80,14 @@ const purpleMaterial = new BasicMaterial({ color: new Vector3(0.6, 0.2, 0.9) });
 const greenMaterial = new PhongMaterial({ 
     color: new Vector3(0.2, 0.9, 0.4),
     specular: new Vector3(1, 1, 1),
-    shininess: 30
+    shininess: 30,
 });
+const transparentMaterial = new StandardMaterial({
+      baseColor: new Vector3(1, 0, 0),
+      opacity: 0.5,
+      transparent: true,
+      blendMode: 1
+  })
 const blueMaterial = new BasicMaterial({ color: new Vector3(0.2, 0.4, 0.9) });
 const yellowMaterial = new BasicMaterial({ color: new Vector3(0.9, 0.9, 0.2) });
 const redMaterial = new BasicMaterial({ color: new Vector3(0.9, 0.2, 0.2) });
@@ -123,7 +129,7 @@ const smallBoxGeometry = new BoxGeometry({
     height: 2,
     depth: 2,
 });
-const smallBox = new Mesh(smallBoxGeometry, purpleMaterial);
+const smallBox = new Mesh(smallBoxGeometry, transparentMaterial);
 smallBox.position.x = 2;
 smallBox.castShadow = true;
 smallBox.receiveShadow = true;

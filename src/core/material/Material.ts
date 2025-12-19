@@ -23,6 +23,7 @@ export abstract class Material {
     public uniforms: { [key: string]: unknown } = {};
 
     public transparent: boolean = false;
+    public opacity: number = 1.0;
     public blendMode: BlendMode = BlendMode.Opaque;
     public alphaCutoff: number = 0.5;
     public depthWrite: boolean = true;

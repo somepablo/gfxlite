@@ -260,7 +260,7 @@ export class GLTFLoader {
                           mat.pbrMetallicRoughness.baseColorFactor[2]
                       )
                     : new Vector3(1, 1, 1),
-                alpha: mat.pbrMetallicRoughness?.baseColorFactor
+                opacity: mat.pbrMetallicRoughness?.baseColorFactor
                     ? mat.pbrMetallicRoughness.baseColorFactor[3]
                     : 1.0,
                 metallic: mat.pbrMetallicRoughness?.metallicFactor ?? 1.0,
@@ -279,7 +279,9 @@ export class GLTFLoader {
                 
                 doubleSided: mat.doubleSided ?? false,
                 alphaCutoff: mat.alphaCutoff ?? 0.5,
-                // blendMode mapping: OPAQUE->0, MASK->1, BLEND->2 (need to verify StandardMaterial consts)
+                // GLTF alphaMode: "OPAQUE" (default), "MASK", "BLEND"
+                blendMode: mat.alphaMode === "BLEND" ? 1 : mat.alphaMode === "MASK" ? 2 : 0,
+                transparent: mat.alphaMode === "BLEND",
             });
             
             // Textures

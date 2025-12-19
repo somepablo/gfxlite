@@ -191,7 +191,6 @@ export class MainRenderPhase extends RenderPhase {
         const needsUVs = isStandard || hasTextures;
 
         // Create the program with appropriate options
-        // Use "less-equal" to work with depth pre-pass (accepts fragments at same depth)
         const program = new Program(this.device, {
             vertex: { code: material.getVertexShader() },
             fragment: { code: material.getFragmentShader() },
@@ -288,13 +287,12 @@ export class MainRenderPhase extends RenderPhase {
 
         const textureView = this.context.getCurrentTexture().createView();
 
-        // Render opaque pass (depth buffer already populated by depth pre-pass)
-        this.renderBatches(commandEncoder, opaqueBatches, textureView, "clear", "load");
+        // Render all batches in a single pass (required for MSAA - can't load discarded MSAA buffer)
+        // Opaque first, then transparent (already sorted back-to-front)
+        const allBatchesOrdered = [...opaqueBatches, ...transparentBatches];
 
-        // Render transparent pass
-        if (transparentBatches.length > 0) {
-            this.renderBatches(commandEncoder, transparentBatches, textureView, "load", "load");
-        }
+        // TODO: Change depthLoadOp back to "load" when re-enabling depth pre-pass
+        this.renderBatches(commandEncoder, allBatchesOrdered, textureView, "clear", "clear");
     }
 
     private sortTransparentBatches(batches: DrawBatch[]): void {

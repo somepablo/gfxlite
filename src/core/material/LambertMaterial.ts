@@ -1,9 +1,11 @@
 import { Vector3 } from "../../math";
-import { Material, MaterialType } from "./Material";
+import { Material, MaterialType, BlendMode } from "./Material";
 import type { Texture } from "./Texture";
 
 export interface LambertMaterialOptions {
     color?: Vector3;
+    opacity?: number;
+    transparent?: boolean;
     map?: Texture;
 }
 
@@ -14,10 +16,17 @@ export class LambertMaterial extends Material {
 
     public map: Texture | null = null;
 
-    constructor({ color = new Vector3(1, 1, 1), map }: LambertMaterialOptions = {}) {
+    constructor({ color = new Vector3(1, 1, 1), opacity = 1.0, transparent, map }: LambertMaterialOptions = {}) {
         super();
         this.uniforms.color = color;
         this.map = map ?? null;
+        this.opacity = opacity;
+        // Auto-enable transparency if opacity < 1
+        this.transparent = transparent ?? (opacity < 1.0);
+        if (this.transparent) {
+            this.blendMode = BlendMode.AlphaBlend;
+            this.depthWrite = false;
+        }
     }
 
     hasTextures(): boolean {
@@ -26,9 +35,12 @@ export class LambertMaterial extends Material {
 
     getUniformBufferData(): Float32Array {
         const color = this.uniforms.color as Vector3;
+        // Layout: color (vec3) + opacity (f32) + hasMap (f32) + padding (3 f32) = 32 bytes
         return new Float32Array([
             ...color.toArray(),
-            this.map ? 1.0 : 0.0, // hasMap flag
+            this.opacity,
+            this.map ? 1.0 : 0.0,
+            0.0, 0.0, 0.0, // padding to 32 bytes
         ]);
     }
 
@@ -64,7 +76,7 @@ export class LambertMaterial extends Material {
       @group(0) @binding(2) var<uniform> cameraUniforms: CameraUniforms;
 
       struct VertexOutput {
-          @builtin(position) position: vec4<f32>,
+          @builtin(position) @invariant position: vec4<f32>,
           @location(0) vPosition: vec3<f32>,
           @location(1) vNormal: vec3<f32>,
           ${hasMap ? "@location(2) vUV: vec2<f32>," : ""}
@@ -98,7 +110,11 @@ export class LambertMaterial extends Material {
         return /* wgsl */ `
       struct MaterialUniforms {
           color: vec3<f32>,
+          opacity: f32,
           hasMap: f32,
+          _pad0: f32,
+          _pad1: f32,
+          _pad2: f32,
       }
       @group(1) @binding(0) var<uniform> material: MaterialUniforms;
 
@@ -137,11 +153,11 @@ export class LambertMaterial extends Material {
 
           // Sample texture if present
           var baseColor = material.color;
-          var alpha = 1.0;
+          var alpha = material.opacity;
           ${hasMap ? `
           let texColor = textureSample(map, mapSampler, vUV);
           baseColor *= texColor.rgb;
-          alpha = texColor.a;
+          alpha *= texColor.a;
           ` : ""}
 
           // Ambient

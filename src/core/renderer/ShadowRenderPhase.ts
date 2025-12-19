@@ -155,7 +155,7 @@ export class ShadowRenderPhase extends RenderPhase {
             fn main(
                 @builtin(instance_index) instanceIndex: u32,
                 @location(0) position: vec3<f32>
-            ) -> @builtin(position) vec4<f32> {
+            ) -> @invariant @builtin(position) vec4<f32> {
                 let actualIndex = culled.indices[instanceIndex];
                 let modelMatrix = instances[actualIndex].modelMatrix;
                 let worldPos = modelMatrix * vec4<f32>(position, 1.0);

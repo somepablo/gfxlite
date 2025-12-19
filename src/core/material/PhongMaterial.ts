@@ -1,11 +1,13 @@
 import { Vector3 } from "../../math";
-import { Material, MaterialType } from "./Material";
+import { Material, MaterialType, BlendMode } from "./Material";
 import type { Texture } from "./Texture";
 
 export interface PhongMaterialOptions {
     color?: Vector3;
     specular?: Vector3;
     shininess?: number;
+    opacity?: number;
+    transparent?: boolean;
     map?: Texture;
 }
 
@@ -20,6 +22,8 @@ export class PhongMaterial extends Material {
         color = new Vector3(1, 1, 1),
         specular = new Vector3(1, 1, 1),
         shininess = 30,
+        opacity = 1.0,
+        transparent,
         map,
     }: PhongMaterialOptions = {}) {
         super();
@@ -27,6 +31,13 @@ export class PhongMaterial extends Material {
         this.uniforms.specular = specular;
         this.uniforms.shininess = shininess;
         this.map = map ?? null;
+        this.opacity = opacity;
+        // Auto-enable transparency if opacity < 1
+        this.transparent = transparent ?? (opacity < 1.0);
+        if (this.transparent) {
+            this.blendMode = BlendMode.AlphaBlend;
+            this.depthWrite = false;
+        }
     }
 
     hasTextures(): boolean {
@@ -38,11 +49,14 @@ export class PhongMaterial extends Material {
         const specular = this.uniforms.specular as Vector3;
         const shininess = this.uniforms.shininess as number;
 
+        // Layout: color (vec3) + opacity (f32) + specular (vec3) + shininess (f32) + hasMap (f32) + padding (3 f32) = 48 bytes
         return new Float32Array([
             ...color.toArray(),
-            this.map ? 1.0 : 0.0, // hasMap flag
+            this.opacity,
             ...specular.toArray(),
             shininess,
+            this.map ? 1.0 : 0.0,
+            0.0, 0.0, 0.0, // padding
         ]);
     }
 
@@ -78,7 +92,7 @@ export class PhongMaterial extends Material {
       @group(0) @binding(2) var<uniform> cameraUniforms: CameraUniforms;
 
       struct VertexOutput {
-          @builtin(position) position: vec4<f32>,
+          @builtin(position) @invariant position: vec4<f32>,
           @location(0) vPosition: vec3<f32>,
           @location(1) vNormal: vec3<f32>,
           ${hasMap ? "@location(2) vUV: vec2<f32>," : ""}
@@ -114,9 +128,13 @@ export class PhongMaterial extends Material {
         return /* wgsl */ `
       struct MaterialUniforms {
           color: vec3<f32>,
-          hasMap: f32,
+          opacity: f32,
           specular: vec3<f32>,
           shininess: f32,
+          hasMap: f32,
+          _pad0: f32,
+          _pad1: f32,
+          _pad2: f32,
       }
       @group(1) @binding(0) var<uniform> material: MaterialUniforms;
 
@@ -157,11 +175,13 @@ export class PhongMaterial extends Material {
 
           // Sample texture if present
           var baseColor = material.color;
-          var alpha = 1.0;
+          var alpha = material.opacity;
           ${hasMap ? `
-          let texColor = textureSample(map, mapSampler, vUV);
-          baseColor *= texColor.rgb;
-          alpha = texColor.a;
+          if (material.hasMap > 0.5) {
+              let texColor = textureSample(map, mapSampler, vUV);
+              baseColor *= texColor.rgb;
+              alpha *= texColor.a;
+          }
           ` : ""}
 
           // Ambient

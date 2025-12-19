@@ -59,7 +59,7 @@ export class DepthPrePhase extends RenderPhase {
             fn main(
                 @builtin(instance_index) instanceIndex: u32,
                 @location(0) position: vec3<f32>
-            ) -> @builtin(position) vec4<f32> {
+            ) -> @invariant @builtin(position) vec4<f32> {
                 let actualIndex = culled.indices[instanceIndex];
                 let worldPos = instances[actualIndex].modelMatrix * vec4<f32>(position, 1.0);
                 return cameraUniforms.mainViewProjection * worldPos;
