@@ -21,6 +21,7 @@ import {
     StandardMaterial,
     Texture,
     GLTFLoader,
+    Environment,
 } from "../src";
 import { Vector3, Euler } from "../src/math";
 
@@ -35,6 +36,15 @@ const scene = new Scene();
 
 // Set Ambient Light
 scene.ambientLight = new Vector3(0.2, 0.2, 0.2);
+
+const environment = await Environment.loadHDR("env.hdr", {
+    resolution: 512,      // Cubemap face size (default 512)
+    intensity: 1.0,       // Environment intensity multiplier
+    specularMipLevels: 5  // Roughness mip levels (default 5)
+});
+
+// Assign to scene
+scene.environment = environment;
 
 // Add Directional Light
 // Add Directional Light 1

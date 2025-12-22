@@ -4,10 +4,12 @@ import { LightingManager } from "./LightingManager";
 import { MainRenderPhase } from "./MainRenderPhase";
 import { ShadowRenderPhase } from "./ShadowRenderPhase";
 import { DepthPrePhase } from "./DepthPrePhase";
+import { SkyboxRenderPhase } from "./SkyboxRenderPhase";
 import { CullingComputePhase } from "./CullingComputePhase";
 import { BatchManager } from "./BatchManager";
 import { DirectionalLight } from "../light/DirectionalLight";
 import { TextureManager } from "../material/TextureManager";
+import { EnvironmentManager } from "../environment/EnvironmentManager";
 
 export const ShadowType = {
     Basic: 0,
@@ -38,9 +40,11 @@ export class Renderer {
     private lightingManager!: LightingManager;
     private batchManager!: BatchManager;
     private textureManager!: TextureManager;
+    private environmentManager!: EnvironmentManager;
     private mainPhase!: MainRenderPhase;
     private shadowPhase!: ShadowRenderPhase;
     private depthPrePhase!: DepthPrePhase;
+    private skyboxPhase!: SkyboxRenderPhase;
     private cullingPhase!: CullingComputePhase;
 
     private depthTexture!: GPUTexture;
@@ -54,6 +58,10 @@ export class Renderer {
     public shadowsEnabled: boolean = true;
 
     private sampleCount: number = 1;
+
+    // Track background state to avoid redundant clear color updates
+    private lastBackgroundType: 'environment' | 'color' | 'none' | null = null;
+    private lastClearColor: { r: number; g: number; b: number } | null = null;
 
     public debugInfo = {
         render: {
@@ -131,6 +139,9 @@ export class Renderer {
         // Create texture manager
         this.textureManager = new TextureManager(this.device);
 
+        // Create environment manager
+        this.environmentManager = new EnvironmentManager(this.device);
+
         // Create culling phase and link to batch manager
         this.cullingPhase = new CullingComputePhase(this.device);
         this.cullingPhase.setBatchManager(this.batchManager);
@@ -151,6 +162,15 @@ export class Renderer {
             this.context,
             this.depthTextureView,
             this.msaaTextureView,
+            this.sampleCount
+        );
+        this.mainPhase.setEnvironmentManager(this.environmentManager);
+
+        // Create skybox render phase
+        this.skyboxPhase = new SkyboxRenderPhase(
+            this.device,
+            this.environmentManager,
+            this.presentationFormat,
             this.sampleCount
         );
 
@@ -200,11 +220,13 @@ export class Renderer {
                     this.msaaTextureView,
                     this.sampleCount
                 );
+                this.mainPhase.setEnvironmentManager(this.environmentManager);
             }
 
             if (this.depthPrePhase) {
                 this.depthPrePhase.setDepthTextureView(this.depthTextureView);
             }
+
         }
     }
 
@@ -255,10 +277,20 @@ export class Renderer {
         // Prepare shadow phase (uses same batches, updates shadow camera bounds)
         this.shadowPhase.prepare(scene, camera);
 
+        // Process environment if changed
+        if (scene.environment?.needsUpdate) {
+            this.environmentManager.processEnvironment(scene.environment);
+        }
+
         // Prepare depth pre-pass
         this.depthPrePhase.prepare(scene, camera);
 
+        // Prepare skybox phase
+        this.skyboxPhase.setEnvironment(scene.environment);
+        this.skyboxPhase.prepare(scene, camera);
+
         // Prepare main phase (creates batches)
+        this.mainPhase.setEnvironment(scene.environment);
         this.mainPhase.prepare(scene, camera);
 
         // Update unified instance buffer
@@ -274,6 +306,51 @@ export class Renderer {
         this.cullingPhase.execute(commandEncoder);
         this.shadowPhase.execute(commandEncoder);
         this.depthPrePhase.execute(commandEncoder);
+
+        // Set skybox render targets and execute (only if background is environment type)
+        const colorTextureView =
+            this.sampleCount > 1
+                ? this.msaaTextureView
+                : this.context.getCurrentTexture().createView();
+        const skyboxRendered = scene.background.type === 'environment' && scene.environment !== null;
+        if (skyboxRendered) {
+            this.skyboxPhase.setRenderTargets(colorTextureView, this.depthTextureView);
+            this.skyboxPhase.execute(commandEncoder);
+        }
+
+        // Set clear color based on background type (only if changed)
+        let backgroundChanged = false;
+        
+        if (scene.background.type !== this.lastBackgroundType) {
+            backgroundChanged = true;
+        } else if (scene.background.type === 'color') {
+            const color = scene.background.color;
+            if (!this.lastClearColor || 
+                this.lastClearColor.r !== color.x || 
+                this.lastClearColor.g !== color.y || 
+                this.lastClearColor.b !== color.z) {
+                backgroundChanged = true;
+            }
+        }
+        
+        if (backgroundChanged) {
+            if (scene.background.type === 'color') {
+                const color = scene.background.color;
+                this.mainPhase.setClearColor(color.x, color.y, color.z, 1.0);
+                this.lastClearColor = { r: color.x, g: color.y, b: color.z };
+            } else if (scene.background.type === 'none') {
+                this.mainPhase.setClearColor(0, 0, 0, 0);
+                this.lastClearColor = null;
+            } else {
+                // Environment type
+                this.mainPhase.setClearColor(0.1, 0.1, 0.1, 1.0);
+                this.lastClearColor = null;
+            }
+            this.lastBackgroundType = scene.background.type;
+        }
+
+        // Inform main phase whether skybox was rendered (affects loadOp)
+        this.mainPhase.setSkyboxRendered(skyboxRendered);
         this.mainPhase.execute(commandEncoder);
 
         // Submit
@@ -289,8 +366,10 @@ export class Renderer {
         this.lightingManager?.dispose();
         this.batchManager?.dispose();
         this.textureManager?.dispose();
+        this.environmentManager?.dispose();
         this.shadowPhase?.dispose?.();
         this.depthPrePhase?.dispose?.();
+        this.skyboxPhase?.dispose?.();
         this.mainPhase?.dispose?.();
 
         if (this.depthTexture) this.depthTexture.destroy();

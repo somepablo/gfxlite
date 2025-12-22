@@ -1,14 +1,7 @@
 import {
     type GLTF,
-    type GLTFNode,
     type GLTFMesh,
-    type GLTFPrimitive,
-    type GLTFMaterial,
-    type GLTFTexture,
-    type GLTFImage,
-    type GLTFSampler,
     type GLTFAccessor,
-    type GLTFBufferView,
     GLTFConstants,
 } from "./GLTFInterfaces";
 import { Object3D } from "../core/object/Object3D";
@@ -16,7 +9,7 @@ import { Mesh } from "../core/object/Mesh";
 import { Geometry } from "../core/geometry/Geometry";
 import { StandardMaterial } from "../core/material/StandardMaterial";
 import { Texture } from "../core/material/Texture";
-import { Vector3, Quaternion, Matrix4 } from "../math";
+import { Vector3 } from "../math";
 
 export class GLTFLoader {
     private json: GLTF | null = null;

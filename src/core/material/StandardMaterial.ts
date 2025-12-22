@@ -1,6 +1,7 @@
 import { Vector3 } from "../../math";
 import { Material, MaterialType, BlendMode } from "./Material";
 import type { Texture } from "./Texture";
+import type { Environment } from "../environment/Environment";
 
 export interface StandardMaterialOptions {
     // Base properties
@@ -29,6 +30,10 @@ export interface StandardMaterialOptions {
     blendMode?: BlendMode;
     alphaCutoff?: number;
     doubleSided?: boolean;
+
+    // Environment map override
+    envMap?: Environment;
+    envMapIntensity?: number;
 }
 
 export class StandardMaterial extends Material {
@@ -42,6 +47,10 @@ export class StandardMaterial extends Material {
     public metallicRoughnessMap: Texture | null = null;
     public emissiveMap: Texture | null = null;
     public aoMap: Texture | null = null;
+
+    // Per-material environment map override (uses scene.environment if null)
+    public envMap: Environment | null = null;
+    public envMapIntensity: number = 1.0;
 
     constructor(options: StandardMaterialOptions = {}) {
         super();
@@ -74,6 +83,10 @@ export class StandardMaterial extends Material {
         this.alphaCutoff = options.alphaCutoff ?? 0.5;
         this.doubleSided = options.doubleSided ?? false;
         this.depthWrite = !this.transparent;
+
+        // Environment map override
+        this.envMap = options.envMap ?? null;
+        this.envMapIntensity = options.envMapIntensity ?? 1.0;
     }
 
     hasTextures(): boolean {
@@ -229,6 +242,20 @@ struct LightUniforms {
 @group(3) @binding(4) var aoMap: texture_2d<f32>;
 @group(3) @binding(5) var texSampler: sampler;
 
+// Environment IBL (group 3, bindings 6-11)
+struct EnvironmentParams {
+    intensity: f32,
+    hasEnvironment: f32,
+    _pad1: f32,
+    _pad2: f32,
+}
+@group(3) @binding(6) var irradianceMap: texture_cube<f32>;
+@group(3) @binding(7) var prefilteredMap: texture_cube<f32>;
+@group(3) @binding(8) var brdfLUT: texture_2d<f32>;
+@group(3) @binding(9) var envSampler: sampler;
+@group(3) @binding(10) var brdfSampler: sampler;
+@group(3) @binding(11) var<uniform> envParams: EnvironmentParams;
+
 // PBR Helper Functions
 fn DistributionGGX(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
     let a = roughness * roughness;
@@ -264,6 +291,36 @@ fn GeometrySmith(N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, roughness: f32) -> f3
 
 fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+fn fresnelSchlickRoughness(cosTheta: f32, F0: vec3<f32>, roughness: f32) -> vec3<f32> {
+    return F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+const MAX_REFLECTION_LOD: f32 = 4.0;
+
+fn sampleIBL(N: vec3<f32>, V: vec3<f32>, F0: vec3<f32>, roughness: f32, metallic: f32, albedo: vec3<f32>) -> vec3<f32> {
+    if (envParams.hasEnvironment < 0.5) {
+        return vec3<f32>(0.0);
+    }
+
+    let NdotV = max(dot(N, V), 0.0);
+    let R = reflect(-V, N);
+
+    // Fresnel term for IBL (using roughness for energy conservation)
+    let F = fresnelSchlickRoughness(NdotV, F0, roughness);
+
+    // Diffuse IBL
+    let irradiance = textureSample(irradianceMap, envSampler, N).rgb;
+    let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
+    let diffuseIBL = kD * irradiance * albedo;
+
+    // Specular IBL - F * brdf.x + brdf.y is the split-sum approximation
+    let prefilteredColor = textureSampleLevel(prefilteredMap, envSampler, R, roughness * MAX_REFLECTION_LOD).rgb;
+    let brdf = textureSample(brdfLUT, brdfSampler, vec2<f32>(NdotV, roughness)).rg;
+    let specularIBL = prefilteredColor * (F * brdf.x + brdf.y);
+
+    return (diffuseIBL + specularIBL) * envParams.intensity;
 }
 
 fn getNormalFromMap(normal: vec3<f32>, tangent: vec4<f32>, worldPos: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
@@ -420,13 +477,15 @@ fn main(
         Lo += (kD * albedo / PI + specular) * radiance * NdotL;
     }
 
-    // Ambient lighting with metallic workflow
-    // Metals have no diffuse, only specular from environment reflections
-    // Without environment map, metals should appear darker
-    var kD_ambient = vec3<f32>(1.0 - metallic);
+    // IBL ambient lighting (replaces simple ambient)
+    let iblAmbient = sampleIBL(N, V, F0, roughness, metallic, albedo) * ao;
 
-    // Diffuse ambient (zero for pure metals)
-    let ambient = lighting.ambientColor * albedo * kD_ambient * ao;
+    // Fallback simple ambient when no environment
+    var kD_ambient = vec3<f32>(1.0 - metallic);
+    let simpleAmbient = lighting.ambientColor * albedo * kD_ambient * ao;
+
+    // Use IBL if available, otherwise use simple ambient
+    let ambient = select(simpleAmbient, iblAmbient, envParams.hasEnvironment > 0.5);
 
     let color = ambient + Lo + emissive;
 

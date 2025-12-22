@@ -1,6 +1,7 @@
 export { Renderer } from "./core/renderer/Renderer";
 export { ShadowType } from "./core/renderer/Renderer";
 export { Scene } from "./core/scene/Scene";
+export type { SceneBackground } from "./core/scene/Scene";
 export { Object3D } from "./core/object/Object3D";
 export { Camera } from "./core/camera/Camera";
 export { PerspectiveCamera } from "./core/camera/PerspectiveCamera";
@@ -20,4 +21,5 @@ export { Texture } from "./core/material/Texture";
 export { BlendMode } from "./core/material/Material";
 export { Light } from "./core/light/Light";
 export { DirectionalLight } from "./core/light/DirectionalLight";
+export { Environment } from "./core/environment/Environment";
 export { GLTFLoader } from "./loaders/GLTFLoader";
