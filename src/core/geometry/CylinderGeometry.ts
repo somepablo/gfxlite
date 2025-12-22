@@ -72,12 +72,11 @@ export class CylinderGeometry extends Geometry {
                 uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
             }
 
-            // Top cap indices
             for (let x = 0; x < radialSegments; x++) {
                 const a = topCenterIndex;
                 const b = topCenterIndex + 1 + x;
                 const c = topCenterIndex + 1 + x + 1;
-                indices.push(a, b, c);
+                indices.push(a, c, b);
             }
 
             // Bottom cap
@@ -96,12 +95,11 @@ export class CylinderGeometry extends Geometry {
                 uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
             }
 
-            // Bottom cap indices
             for (let x = 0; x < radialSegments; x++) {
                 const a = bottomCenterIndex;
                 const b = bottomCenterIndex + 1 + x + 1;
                 const c = bottomCenterIndex + 1 + x;
-                indices.push(a, b, c);
+                indices.push(a, c, b);
             }
         }
 

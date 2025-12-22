@@ -50,8 +50,8 @@ export class TorusGeometry extends Geometry {
                 const c = (tubularSegments + 1) * (j + 1) + i + 1;
                 const d = (tubularSegments + 1) * j + i + 1;
 
-                indices.push(a, b, d);
-                indices.push(b, c, d);
+                indices.push(a, d, b);
+                indices.push(d, c, b);
             }
         }
 

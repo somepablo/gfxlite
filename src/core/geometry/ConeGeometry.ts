@@ -72,12 +72,11 @@ export class ConeGeometry extends Geometry {
                 uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
             }
 
-            // Base cap indices
             for (let x = 0; x < radialSegments; x++) {
                 const a = baseCenterIndex;
                 const b = baseCenterIndex + 1 + x + 1;
                 const c = baseCenterIndex + 1 + x;
-                indices.push(a, b, c);
+                indices.push(a, c, b);
             }
         }
 

@@ -35,8 +35,8 @@ export class BoxGeometry extends Geometry {
             uvOffset += 8;
 
             indices.set([
-                vertexIndex, vertexIndex + 1, vertexIndex + 2,
-                vertexIndex + 2, vertexIndex + 3, vertexIndex
+                vertexIndex, vertexIndex + 2, vertexIndex + 1,
+                vertexIndex, vertexIndex + 3, vertexIndex + 2
             ], iOffset);
             iOffset += 6;
 

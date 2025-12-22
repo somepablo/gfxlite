@@ -42,6 +42,6 @@ export abstract class Material {
     }
 
     getPipelineKey(): string {
-        return `${this.materialType}_${this.transparent ? 1 : 0}_${this.hasTextures() ? 1 : 0}`;
+        return `${this.materialType}_${this.transparent ? 1 : 0}_${this.hasTextures() ? 1 : 0}_${this.doubleSided ? 1 : 0}`;
     }
 }

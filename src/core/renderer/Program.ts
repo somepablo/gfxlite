@@ -146,6 +146,7 @@ export class Program {
             },
             primitive: {
                 topology: "triangle-list",
+                cullMode: options.cullMode ?? "back",
             },
             multisample: options.multisample,
         });

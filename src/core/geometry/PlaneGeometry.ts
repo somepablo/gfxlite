@@ -44,7 +44,6 @@ export class PlaneGeometry extends Geometry {
                 const c = ix + 1 + (gridX + 1) * (iy + 1);
                 const d = ix + 1 + (gridX + 1) * iy;
 
-                // Two triangles per quad
                 indices.push(a, b, d);
                 indices.push(b, c, d);
             }

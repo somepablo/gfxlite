@@ -22,6 +22,7 @@ import {
     Texture,
     GLTFLoader,
     Environment,
+    OrbitControls,
 } from "../src";
 import { Vector3, Euler } from "../src/math";
 
@@ -245,6 +246,14 @@ const camera = new PerspectiveCamera(
 camera.position.set(0, 3, 10);
 camera.lookAt(new Vector3(0, 0, 0));
 
+// Create orbit controls
+const controls = new OrbitControls(camera, canvas, {
+    enableDamping: true,
+    dampingFactor: 0.05,
+    minDistance: 2,
+    maxDistance: 50,
+});
+
 // --- Instrumentation ---
 const stats = new Stats();
 const panelCalls = stats.addPanel(new Stats.Panel("Calls", "#ff8", "#221"));
@@ -253,11 +262,15 @@ stats.showPanel(0);
 document.body.appendChild(stats.dom);
 
 const gui = new GUI();
-const cameraFolder = gui.addFolder("Camera");
-cameraFolder.add(camera.position, "x", -20, 20);
-cameraFolder.add(camera.position, "y", -20, 20);
-cameraFolder.add(camera.position, "z", -20, 20);
-cameraFolder.open();
+const controlsFolder = gui.addFolder("Orbit Controls");
+controlsFolder.add(controls, "enabled").name("Enabled");
+controlsFolder.add(controls, "enableDamping").name("Damping");
+controlsFolder.add(controls, "dampingFactor", 0.01, 0.2).name("Damping Factor");
+controlsFolder.add(controls, "rotateSpeed", 0.1, 3).name("Rotate Speed");
+controlsFolder.add(controls, "zoomSpeed", 0.1, 3).name("Zoom Speed");
+controlsFolder.add(controls, "enablePan").name("Enable Pan");
+controlsFolder.add(controls, "panSpeed", 0.1, 3).name("Pan Speed");
+controlsFolder.open();
 
 const lightFolder = gui.addFolder("Light");
 lightFolder.add(light.position, "x", -10, 10).name("Light X");
@@ -299,24 +312,27 @@ window.addEventListener("resize", () => {
 
 function frame() {
     stats.begin();
-    
+
+    // Update orbit controls
+    controls.update();
+
     // Update light direction based on position (looking at 0,0,0)
     light.lookAt(new Vector3(0, 0, 0));
     light2.lookAt(new Vector3(0, 0, 0));
-    
+
     // Animate box
     box.rotation.setFromEuler(new Euler(0, performance.now() / 1000, 0));
     box.updateLocalMatrix();
     damagedHelmet.rotation.setFromEuler(new Euler(0, performance.now() / 1000, 0));
-    damagedHelmet.updateLocalMatrix();  
-    
+    damagedHelmet.updateLocalMatrix();
+
     renderer.render(scene, camera);
-    
+
     panelCalls.update(renderer.debugInfo.render.calls, 100);
     panelTris.update(renderer.debugInfo.render.triangles, 1000);
-    
+
     stats.end();
-    
+
     requestAnimationFrame(frame);
 }
 

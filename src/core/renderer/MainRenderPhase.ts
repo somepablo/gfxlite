@@ -248,6 +248,7 @@ export class MainRenderPhase extends RenderPhase {
             blend: material.transparent ? ALPHA_BLEND_STATE : undefined,
             depthWrite: !material.transparent,
             depthCompare: "less-equal",
+            cullMode: material.doubleSided ? "none" : "back",
         });
 
         // Create lighting bind group if needed
@@ -336,10 +337,10 @@ export class MainRenderPhase extends RenderPhase {
         // Opaque first, then transparent (already sorted back-to-front)
         const allBatchesOrdered = [...opaqueBatches, ...transparentBatches];
 
-        // TODO: Change depthLoadOp back to "load" when re-enabling depth pre-pass
         // colorLoadOp is "load" if skybox was rendered, "clear" otherwise
         const colorLoadOp = this.skyboxRendered ? "load" : "clear";
-        this.renderBatches(commandEncoder, allBatchesOrdered, textureView, colorLoadOp, "clear");
+        // depthLoadOp is "load" to use the depth buffer from depth pre-pass (early-z optimization)
+        this.renderBatches(commandEncoder, allBatchesOrdered, textureView, colorLoadOp, "load");
     }
 
     private sortTransparentBatches(batches: DrawBatch[]): void {
