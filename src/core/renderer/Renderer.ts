@@ -12,367 +12,381 @@ import { TextureManager } from "../material/TextureManager";
 import { EnvironmentManager } from "../environment/EnvironmentManager";
 
 export const ShadowType = {
-    Basic: 0,
-    PCF: 1,
-    PCFSoft: 2,
+  Basic: 0,
+  PCF: 1,
+  PCFSoft: 2,
 } as const;
 
-export type ShadowType = typeof ShadowType[keyof typeof ShadowType];
+export type ShadowType = (typeof ShadowType)[keyof typeof ShadowType];
 
 export interface RendererOptions {
-    antialias?: boolean;
-    shadowType?: ShadowType;
-    shadows?: boolean;
+  antialias?: boolean;
+  shadowType?: ShadowType;
+  shadows?: boolean;
 }
 
 export class Renderer {
-    public canvas: HTMLCanvasElement;
-    public device!: GPUDevice;
-    public context!: GPUCanvasContext;
-    public presentationFormat!: GPUTextureFormat;
+  public canvas: HTMLCanvasElement;
+  public device!: GPUDevice;
+  public context!: GPUCanvasContext;
+  public presentationFormat!: GPUTextureFormat;
 
-    private pixelRatio: number = 1;
-    public debug: boolean = false;
+  private pixelRatio: number = 1;
+  public debug: boolean = false;
 
-    private isInitialized = false;
-    private initializationPromise: Promise<void>;
+  private isInitialized = false;
+  private initializationPromise: Promise<void>;
 
-    private lightingManager!: LightingManager;
-    private batchManager!: BatchManager;
-    private textureManager!: TextureManager;
-    private environmentManager!: EnvironmentManager;
-    private mainPhase!: MainRenderPhase;
-    private shadowPhase!: ShadowRenderPhase;
-    private depthPrePhase!: DepthPrePhase;
-    private skyboxPhase!: SkyboxRenderPhase;
-    private cullingPhase!: CullingComputePhase;
+  private lightingManager!: LightingManager;
+  private batchManager!: BatchManager;
+  private textureManager!: TextureManager;
+  private environmentManager!: EnvironmentManager;
+  private mainPhase!: MainRenderPhase;
+  private shadowPhase!: ShadowRenderPhase;
+  private depthPrePhase!: DepthPrePhase;
+  private skyboxPhase!: SkyboxRenderPhase;
+  private cullingPhase!: CullingComputePhase;
 
-    private depthTexture!: GPUTexture;
-    private depthTextureView!: GPUTextureView;
-    private msaaTexture!: GPUTexture;
-    private msaaTextureView!: GPUTextureView;
+  private depthTexture!: GPUTexture;
+  private depthTextureView!: GPUTextureView;
+  private msaaTexture!: GPUTexture;
+  private msaaTextureView!: GPUTextureView;
 
-    private dummyShadowMap!: GPUTextureView;
-    private dummyShadowSampler!: GPUSampler;
-    public shadowType: ShadowType = ShadowType.PCF;
-    public shadowsEnabled: boolean = true;
+  private dummyShadowMap!: GPUTextureView;
+  private dummyShadowSampler!: GPUSampler;
+  public shadowType: ShadowType = ShadowType.PCF;
+  public shadowsEnabled: boolean = true;
 
-    private sampleCount: number = 1;
+  private sampleCount: number = 1;
 
-    // Track background state to avoid redundant clear color updates
-    private lastBackgroundType: 'environment' | 'color' | 'none' | null = null;
-    private lastClearColor: { r: number; g: number; b: number } | null = null;
+  // Track background state to avoid redundant clear color updates
+  private lastBackgroundType: "environment" | "color" | "none" | null = null;
+  private lastClearColor: { r: number; g: number; b: number } | null = null;
 
-    public debugInfo = {
-        render: {
-            calls: 0,
-            triangles: 0,
-        },
-        memory: {
-            geometries: 0,
-            programs: 0,
-        },
-    };
+  public debugInfo = {
+    render: {
+      calls: 0,
+      triangles: 0,
+    },
+    memory: {
+      geometries: 0,
+      programs: 0,
+    },
+  };
 
-    constructor(canvas: HTMLCanvasElement, options: RendererOptions = {}) {
-        this.canvas = canvas;
-        this.sampleCount = options.antialias ? 4 : 1;
-        if (options.shadowType !== undefined) {
-            this.shadowType = options.shadowType;
-        }
-        if (options.shadows !== undefined) {
-            this.shadowsEnabled = options.shadows;
-        }
-        this.initializationPromise = this.init();
+  constructor(canvas: HTMLCanvasElement, options: RendererOptions = {}) {
+    this.canvas = canvas;
+    this.sampleCount = options.antialias ? 4 : 1;
+    if (options.shadowType !== undefined) {
+      this.shadowType = options.shadowType;
+    }
+    if (options.shadows !== undefined) {
+      this.shadowsEnabled = options.shadows;
+    }
+    this.resize();
+    this.initializationPromise = this.init();
+  }
+
+  private async init(): Promise<void> {
+    if (!navigator.gpu) {
+      console.error("WebGPU not supported on this browser.");
+      return;
     }
 
-    private async init(): Promise<void> {
-        if (!navigator.gpu) {
-            console.error("WebGPU not supported on this browser.");
-            return;
-        }
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      console.error("Failed to get GPU adapter.");
+      return;
+    }
 
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-            console.error("Failed to get GPU adapter.");
-            return;
-        }
+    this.device = await adapter.requestDevice();
+    this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
+    if (!this.context) {
+      console.error("Failed to get WebGPU context.");
+      return;
+    }
 
-        this.device = await adapter.requestDevice();
-        this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
-        if (!this.context) {
-            console.error("Failed to get WebGPU context.");
-            return;
-        }
+    this.presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+    this.context.configure({
+      device: this.device,
+      format: this.presentationFormat,
+      alphaMode: "premultiplied",
+    });
 
-        this.presentationFormat = navigator.gpu.getPreferredCanvasFormat();
-        this.context.configure({
-            device: this.device,
-            format: this.presentationFormat,
-            alphaMode: "premultiplied",
-        });
+    this.createFrameResources();
 
-        this.createFrameResources();
+    // Create dummy shadow resources
+    const dummyTexture = this.device.createTexture({
+      size: [1, 1],
+      format: "depth32float",
+      usage: GPUTextureUsage.TEXTURE_BINDING,
+    });
+    this.dummyShadowMap = dummyTexture.createView();
+    this.dummyShadowSampler = this.device.createSampler({
+      compare: "less",
+      minFilter: "linear",
+      magFilter: "linear",
+    });
 
-        // Create dummy shadow resources
-        const dummyTexture = this.device.createTexture({
-            size: [1, 1],
-            format: "depth32float",
-            usage: GPUTextureUsage.TEXTURE_BINDING,
-        });
-        this.dummyShadowMap = dummyTexture.createView();
-        this.dummyShadowSampler = this.device.createSampler({
-            compare: "less",
-            minFilter: "linear",
-            magFilter: "linear",
-        });
+    this.lightingManager = new LightingManager(
+      this.device,
+      this.dummyShadowMap,
+      this.dummyShadowSampler,
+    );
 
-        this.lightingManager = new LightingManager(
-            this.device,
-            this.dummyShadowMap,
-            this.dummyShadowSampler
-        );
+    // Create batch manager (now handles unified camera buffer)
+    this.batchManager = new BatchManager(this.device);
 
-        // Create batch manager (now handles unified camera buffer)
-        this.batchManager = new BatchManager(this.device);
+    // Create texture manager
+    this.textureManager = new TextureManager(this.device);
 
-        // Create texture manager
-        this.textureManager = new TextureManager(this.device);
+    // Create environment manager
+    this.environmentManager = new EnvironmentManager(this.device);
 
-        // Create environment manager
-        this.environmentManager = new EnvironmentManager(this.device);
+    // Create culling phase and link to batch manager
+    this.cullingPhase = new CullingComputePhase(this.device);
+    this.cullingPhase.setBatchManager(this.batchManager);
 
-        // Create culling phase and link to batch manager
-        this.cullingPhase = new CullingComputePhase(this.device);
-        this.cullingPhase.setBatchManager(this.batchManager);
+    // Create shadow phase
+    this.shadowPhase = new ShadowRenderPhase(
+      this.device,
+      this.lightingManager,
+      this.batchManager,
+    );
 
-        // Create shadow phase
-        this.shadowPhase = new ShadowRenderPhase(
-            this.device,
-            this.lightingManager,
-            this.batchManager
-        );
+    // Create main render phase
+    this.mainPhase = new MainRenderPhase(
+      this.device,
+      this.lightingManager,
+      this.batchManager,
+      this.textureManager,
+      this.context,
+      this.depthTextureView,
+      this.msaaTextureView,
+      this.sampleCount,
+    );
+    this.mainPhase.setEnvironmentManager(this.environmentManager);
 
-        // Create main render phase
+    // Create skybox render phase
+    this.skyboxPhase = new SkyboxRenderPhase(
+      this.device,
+      this.environmentManager,
+      this.presentationFormat,
+      this.sampleCount,
+    );
+
+    // Create depth pre-pass phase
+    this.depthPrePhase = new DepthPrePhase(
+      this.device,
+      this.batchManager,
+      this.sampleCount,
+    );
+    this.depthPrePhase.setDepthTextureView(this.depthTextureView);
+
+    console.log("GFXLite Renderer Initialized");
+    this.isInitialized = true;
+  }
+
+  public getPixelRatio(): number {
+    return this.pixelRatio;
+  }
+
+  public setPixelRatio(value: number) {
+    this.pixelRatio = value;
+  }
+
+  public resize() {
+    if (!this.canvas) return;
+
+    const width = this.canvas.clientWidth;
+    const height = this.canvas.clientHeight;
+
+    this.canvas.width = width * this.pixelRatio;
+    this.canvas.height = height * this.pixelRatio;
+
+    if (this.device) {
+      if (this.depthTexture) this.depthTexture.destroy();
+      if (this.msaaTexture) this.msaaTexture.destroy();
+
+      this.createFrameResources();
+
+      if (this.mainPhase) {
         this.mainPhase = new MainRenderPhase(
-            this.device,
-            this.lightingManager,
-            this.batchManager,
-            this.textureManager,
-            this.context,
-            this.depthTextureView,
-            this.msaaTextureView,
-            this.sampleCount
+          this.device,
+          this.lightingManager,
+          this.batchManager,
+          this.textureManager,
+          this.context,
+          this.depthTextureView,
+          this.msaaTextureView,
+          this.sampleCount,
         );
         this.mainPhase.setEnvironmentManager(this.environmentManager);
+      }
 
-        // Create skybox render phase
-        this.skyboxPhase = new SkyboxRenderPhase(
-            this.device,
-            this.environmentManager,
-            this.presentationFormat,
-            this.sampleCount
-        );
-
-        // Create depth pre-pass phase
-        this.depthPrePhase = new DepthPrePhase(
-            this.device,
-            this.batchManager,
-            this.sampleCount
-        );
+      if (this.depthPrePhase) {
         this.depthPrePhase.setDepthTextureView(this.depthTextureView);
+      }
+    }
+  }
 
-        console.log("GFXLite Renderer Initialized");
-        this.isInitialized = true;
+  private createFrameResources() {
+    this.msaaTexture = this.device.createTexture({
+      size: [this.canvas.width, this.canvas.height],
+      format: this.presentationFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      sampleCount: this.sampleCount,
+    });
+    this.msaaTextureView = this.msaaTexture.createView();
+
+    this.depthTexture = this.device.createTexture({
+      size: [this.canvas.width, this.canvas.height],
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      sampleCount: this.sampleCount,
+    });
+    this.depthTextureView = this.depthTexture.createView();
+  }
+
+  public async render(scene: Scene, camera: Camera) {
+    if (!this.isInitialized) {
+      await this.initializationPromise;
     }
 
-    public getPixelRatio(): number {
-        return this.pixelRatio;
+    if (this.debug) {
+      this.debugInfo.render.calls = 0;
+      this.debugInfo.render.triangles = 0;
     }
 
-    public setPixelRatio(value: number) {
-        this.pixelRatio = value;
+    // Update world matrices
+    scene.updateWorldMatrix();
+    camera.updateWorldMatrix();
+
+    // Collect lights and update lighting buffer
+    const lights = this.lightingManager.collectLights(scene);
+    this.lightingManager.updateLightingBuffer(
+      scene,
+      lights,
+      this.shadowType,
+      this.shadowsEnabled,
+    );
+
+    // Filter shadow-casting lights
+    const shadowLights = this.shadowsEnabled
+      ? lights.filter(
+          (l): l is DirectionalLight =>
+            l instanceof DirectionalLight && l.castShadow,
+        )
+      : [];
+
+    // Configure shadow phase
+    this.shadowPhase.setEnabled(this.shadowsEnabled);
+    this.shadowPhase.setLights(lights);
+    // Prepare shadow phase (uses same batches, updates shadow camera bounds)
+    this.shadowPhase.prepare(scene, camera);
+
+    // Process environment if changed
+    if (scene.environment?.needsUpdate) {
+      this.environmentManager.processEnvironment(scene.environment);
     }
 
-    public resize() {
-        if (!this.canvas) return;
+    // Prepare depth pre-pass
+    this.depthPrePhase.prepare(scene, camera);
 
-        const width = this.canvas.clientWidth;
-        const height = this.canvas.clientHeight;
+    // Prepare skybox phase
+    this.skyboxPhase.setEnvironment(scene.environment);
+    this.skyboxPhase.prepare(scene, camera);
 
-        this.canvas.width = width * this.pixelRatio;
-        this.canvas.height = height * this.pixelRatio;
+    // Prepare main phase (creates batches)
+    this.mainPhase.setEnvironment(scene.environment);
+    this.mainPhase.prepare(scene, camera);
 
-        if (this.device) {
-            if (this.depthTexture) this.depthTexture.destroy();
-            if (this.msaaTexture) this.msaaTexture.destroy();
+    // Update unified instance buffer
+    const batches = this.batchManager.getBatches();
+    this.batchManager.updateInstanceBuffer(batches);
 
-            this.createFrameResources();
+    // Update unified camera buffer with main camera + all shadow light cameras
+    this.batchManager.updateCameraUniforms(camera, shadowLights);
 
-            if (this.mainPhase) {
-                this.mainPhase = new MainRenderPhase(
-                    this.device,
-                    this.lightingManager,
-                    this.batchManager,
-                    this.textureManager,
-                    this.context,
-                    this.depthTextureView,
-                    this.msaaTextureView,
-                    this.sampleCount
-                );
-                this.mainPhase.setEnvironmentManager(this.environmentManager);
-            }
+    // Create command encoder
+    const commandEncoder = this.device.createCommandEncoder();
 
-            if (this.depthPrePhase) {
-                this.depthPrePhase.setDepthTextureView(this.depthTextureView);
-            }
+    this.cullingPhase.execute(commandEncoder);
+    this.shadowPhase.execute(commandEncoder);
+    this.depthPrePhase.execute(commandEncoder);
 
-        }
+    // Set skybox render targets and execute (only if background is environment type)
+    const colorTextureView =
+      this.sampleCount > 1
+        ? this.msaaTextureView
+        : this.context.getCurrentTexture().createView();
+    const skyboxRendered =
+      scene.background.type === "environment" && scene.environment !== null;
+    if (skyboxRendered) {
+      this.skyboxPhase.setRenderTargets(
+        colorTextureView,
+        this.depthTextureView,
+      );
+      this.skyboxPhase.execute(commandEncoder);
     }
 
-    private createFrameResources() {
-        this.msaaTexture = this.device.createTexture({
-            size: [this.canvas.width, this.canvas.height],
-            format: this.presentationFormat,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            sampleCount: this.sampleCount,
-        });
-        this.msaaTextureView = this.msaaTexture.createView();
+    // Set clear color based on background type (only if changed)
+    let backgroundChanged = false;
 
-        this.depthTexture = this.device.createTexture({
-            size: [this.canvas.width, this.canvas.height],
-            format: "depth24plus",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            sampleCount: this.sampleCount,
-        });
-        this.depthTextureView = this.depthTexture.createView();
+    if (scene.background.type !== this.lastBackgroundType) {
+      backgroundChanged = true;
+    } else if (scene.background.type === "color") {
+      const color = scene.background.color;
+      if (
+        !this.lastClearColor ||
+        this.lastClearColor.r !== color.x ||
+        this.lastClearColor.g !== color.y ||
+        this.lastClearColor.b !== color.z
+      ) {
+        backgroundChanged = true;
+      }
     }
 
-    public async render(scene: Scene, camera: Camera) {
-        if (!this.isInitialized) {
-            await this.initializationPromise;
-        }
-
-        if (this.debug) {
-            this.debugInfo.render.calls = 0;
-            this.debugInfo.render.triangles = 0;
-        }
-
-        // Update world matrices
-        scene.updateWorldMatrix();
-        camera.updateWorldMatrix();
-
-        // Collect lights and update lighting buffer
-        const lights = this.lightingManager.collectLights(scene);
-        this.lightingManager.updateLightingBuffer(scene, lights, this.shadowType, this.shadowsEnabled);
-
-        // Filter shadow-casting lights
-        const shadowLights = this.shadowsEnabled
-            ? lights.filter((l): l is DirectionalLight => l instanceof DirectionalLight && l.castShadow)
-            : [];
-
-        // Configure shadow phase
-        this.shadowPhase.setEnabled(this.shadowsEnabled);
-        this.shadowPhase.setLights(lights);
-        // Prepare shadow phase (uses same batches, updates shadow camera bounds)
-        this.shadowPhase.prepare(scene, camera);
-
-        // Process environment if changed
-        if (scene.environment?.needsUpdate) {
-            this.environmentManager.processEnvironment(scene.environment);
-        }
-
-        // Prepare depth pre-pass
-        this.depthPrePhase.prepare(scene, camera);
-
-        // Prepare skybox phase
-        this.skyboxPhase.setEnvironment(scene.environment);
-        this.skyboxPhase.prepare(scene, camera);
-
-        // Prepare main phase (creates batches)
-        this.mainPhase.setEnvironment(scene.environment);
-        this.mainPhase.prepare(scene, camera);
-
-        // Update unified instance buffer
-        const batches = this.batchManager.getBatches();
-        this.batchManager.updateInstanceBuffer(batches);
-
-        // Update unified camera buffer with main camera + all shadow light cameras
-        this.batchManager.updateCameraUniforms(camera, shadowLights);
-
-        // Create command encoder
-        const commandEncoder = this.device.createCommandEncoder();
-
-        this.cullingPhase.execute(commandEncoder);
-        this.shadowPhase.execute(commandEncoder);
-        this.depthPrePhase.execute(commandEncoder);
-
-        // Set skybox render targets and execute (only if background is environment type)
-        const colorTextureView =
-            this.sampleCount > 1
-                ? this.msaaTextureView
-                : this.context.getCurrentTexture().createView();
-        const skyboxRendered = scene.background.type === 'environment' && scene.environment !== null;
-        if (skyboxRendered) {
-            this.skyboxPhase.setRenderTargets(colorTextureView, this.depthTextureView);
-            this.skyboxPhase.execute(commandEncoder);
-        }
-
-        // Set clear color based on background type (only if changed)
-        let backgroundChanged = false;
-        
-        if (scene.background.type !== this.lastBackgroundType) {
-            backgroundChanged = true;
-        } else if (scene.background.type === 'color') {
-            const color = scene.background.color;
-            if (!this.lastClearColor || 
-                this.lastClearColor.r !== color.x || 
-                this.lastClearColor.g !== color.y || 
-                this.lastClearColor.b !== color.z) {
-                backgroundChanged = true;
-            }
-        }
-        
-        if (backgroundChanged) {
-            if (scene.background.type === 'color') {
-                const color = scene.background.color;
-                this.mainPhase.setClearColor(color.x, color.y, color.z, 1.0);
-                this.lastClearColor = { r: color.x, g: color.y, b: color.z };
-            } else if (scene.background.type === 'none') {
-                this.mainPhase.setClearColor(0, 0, 0, 0);
-                this.lastClearColor = null;
-            } else {
-                // Environment type
-                this.mainPhase.setClearColor(0.1, 0.1, 0.1, 1.0);
-                this.lastClearColor = null;
-            }
-            this.lastBackgroundType = scene.background.type;
-        }
-
-        // Inform main phase whether skybox was rendered (affects loadOp)
-        this.mainPhase.setSkyboxRendered(skyboxRendered);
-        this.mainPhase.execute(commandEncoder);
-
-        // Submit
-        this.device.queue.submit([commandEncoder.finish()]);
-
-        if (this.debug) {
-            this.debugInfo.render.calls = this.mainPhase.debugInfo.calls;
-            this.debugInfo.render.triangles = this.mainPhase.debugInfo.triangles;
-        }
+    if (backgroundChanged) {
+      if (scene.background.type === "color") {
+        const color = scene.background.color;
+        this.mainPhase.setClearColor(color.x, color.y, color.z, 1.0);
+        this.lastClearColor = { r: color.x, g: color.y, b: color.z };
+      } else if (scene.background.type === "none") {
+        this.mainPhase.setClearColor(0, 0, 0, 0);
+        this.lastClearColor = null;
+      } else {
+        // Environment type
+        this.mainPhase.setClearColor(0.1, 0.1, 0.1, 1.0);
+        this.lastClearColor = null;
+      }
+      this.lastBackgroundType = scene.background.type;
     }
 
-    public dispose() {
-        this.lightingManager?.dispose();
-        this.batchManager?.dispose();
-        this.textureManager?.dispose();
-        this.environmentManager?.dispose();
-        this.shadowPhase?.dispose?.();
-        this.depthPrePhase?.dispose?.();
-        this.skyboxPhase?.dispose?.();
-        this.mainPhase?.dispose?.();
+    // Inform main phase whether skybox was rendered (affects loadOp)
+    this.mainPhase.setSkyboxRendered(skyboxRendered);
+    this.mainPhase.execute(commandEncoder);
 
-        if (this.depthTexture) this.depthTexture.destroy();
-        if (this.msaaTexture) this.msaaTexture.destroy();
+    // Submit
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    if (this.debug) {
+      this.debugInfo.render.calls = this.mainPhase.debugInfo.calls;
+      this.debugInfo.render.triangles = this.mainPhase.debugInfo.triangles;
     }
+  }
+
+  public dispose() {
+    this.lightingManager?.dispose();
+    this.batchManager?.dispose();
+    this.textureManager?.dispose();
+    this.environmentManager?.dispose();
+    this.shadowPhase?.dispose?.();
+    this.depthPrePhase?.dispose?.();
+    this.skyboxPhase?.dispose?.();
+    this.mainPhase?.dispose?.();
+
+    if (this.depthTexture) this.depthTexture.destroy();
+    if (this.msaaTexture) this.msaaTexture.destroy();
+  }
 }
