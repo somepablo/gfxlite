@@ -6,10 +6,10 @@ export default defineConfig({
   description: "Modern 3D Renderer for the Web",
   ignoreDeadLinks: true,
 
-  head: [["link", { rel: "icon", href: "/favicon.ico" }]],
+  head: [["link", { rel: "icon", type: "image/svg+xml", href: "/gfxlite.svg" }]],
 
   themeConfig: {
-    logo: "/logo.svg",
+    logo: "/gfxlite.svg",
 
     nav: [
       { text: "Guide", link: "/guide/getting-started" },

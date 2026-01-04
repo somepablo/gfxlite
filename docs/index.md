@@ -5,6 +5,9 @@ hero:
   name: GFXLite
   text: Modern 3D Renderer for the Web
   tagline: A lightweight, GPU-driven 3D rendering library built on WebGPU
+  image:
+    src: /gfxlite.svg
+    alt: GFXLite Logo
   actions:
     - theme: brand
       text: Get Started

@@ -1,12 +1,16 @@
-# gfxlite
+<p align="center">
+  <img src="docs/public/gfxlite.svg" alt="GFXLite Logo" width="128" height="128">
+</p>
 
-`gfxlite` is a lightweight 3D rendering engine built on top of WebGPU. It aims to provide a simple and easy-to-understand API for creating 3D scenes, handling geometry, materials, and cameras.
+<h1 align="center">GFXLite</h1>
+
+`GFXLite` is a lightweight 3D rendering engine built on top of WebGPU. It aims to provide a simple and easy-to-understand API for creating 3D scenes, handling geometry, materials, and cameras.
 
 > Currently in development and is not yet ready for production use.
 
 ## Architecture
 
-`gfxlite` implements a modern, GPU-driven rendering pipeline designed for high performance and efficiency.
+`GFXLite` implements a modern, GPU-driven rendering pipeline designed for high performance and efficiency.
 
 While the API is heavily influenced by **Three.js** for ease of use, the internals are built from the ground up for **WebGPU**. It adopts modern render strategies from high-performance frameworks like **Bevy**, prioritizing GPU-driven techniques over traditional CPU-heavy approaches.
 

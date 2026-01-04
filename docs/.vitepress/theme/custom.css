@@ -1,14 +1,14 @@
 :root {
-  --vp-c-brand-1: #5b8def;
-  --vp-c-brand-2: #3a6bc9;
-  --vp-c-brand-3: #2952a3;
+  --vp-c-brand-1: #06a0d4;
+  --vp-c-brand-2: #258feb;
+  --vp-c-brand-3: #2563EB;
   --vp-c-brand-soft: rgba(91, 141, 239, 0.14);
 }
 
 .dark {
-  --vp-c-brand-1: #7ba4f7;
-  --vp-c-brand-2: #5b8def;
-  --vp-c-brand-3: #3a6bc9;
+  --vp-c-brand-1: #06a0d4;
+  --vp-c-brand-2: #258feb;
+  --vp-c-brand-3: #2563EB;
 }
 
 .webgpu-example {
