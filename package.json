@@ -3,6 +3,21 @@
   "version": "0.1.0",
   "description": "A simple WebGPU 3D render library",
   "author": "Pablo Soto",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/somepablo/gfxlite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/somepablo/gfxlite/issues"
+  },
+  "homepage": "https://gfxlite.dev",
+  "keywords": [
+    "webgpu",
+    "3d",
+    "graphics",
+    "renderer"
+  ],
   "type": "module",
   "main": "./dist/gfxlite.umd.js",
   "module": "./dist/gfxlite.es.js",
