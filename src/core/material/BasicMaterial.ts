@@ -3,50 +3,52 @@ import { Material, MaterialType, BlendMode } from "./Material";
 import type { Texture } from "./Texture";
 
 export interface BasicMaterialOptions {
-    color?: Vector3;
-    opacity?: number;
-    transparent?: boolean;
-    map?: Texture;
+	color?: Vector3;
+	opacity?: number;
+	transparent?: boolean;
+	map?: Texture;
 }
 
 export class BasicMaterial extends Material {
-    public readonly materialType = MaterialType.Basic;
-    public readonly needsLighting = false;
-    public readonly needsNormals = false;
+	public readonly materialType = MaterialType.Basic;
+	public readonly needsLighting = false;
+	public readonly needsNormals = false;
 
-    public map: Texture | null = null;
+	public map: Texture | null = null;
 
-    constructor({ color = new Vector3(1, 1, 1), opacity = 1.0, transparent, map }: BasicMaterialOptions = {}) {
-        super();
-        this.uniforms.color = color;
-        this.map = map ?? null;
-        this.opacity = opacity;
-        // Auto-enable transparency if opacity < 1
-        this.transparent = transparent ?? (opacity < 1.0);
-        if (this.transparent) {
-            this.blendMode = BlendMode.AlphaBlend;
-            this.depthWrite = false;
-        }
-    }
+	constructor({
+		color = new Vector3(1, 1, 1),
+		opacity = 1.0,
+		transparent,
+		map,
+	}: BasicMaterialOptions = {}) {
+		super();
+		this.uniforms.color = color;
+		this.map = map ?? null;
+		this.opacity = opacity;
+		// Auto-enable transparency if opacity < 1
+		this.transparent = transparent ?? opacity < 1.0;
+		if (this.transparent) {
+			this.blendMode = BlendMode.AlphaBlend;
+			this.depthWrite = false;
+		}
+	}
 
-    hasTextures(): boolean {
-        return !!this.map;
-    }
+	hasTextures(): boolean {
+		return !!this.map;
+	}
 
-    getUniformBufferData(): Float32Array {
-        const color = this.uniforms.color as Vector3;
-        // Layout: color (vec3) + opacity (f32) = 16 bytes
-        return new Float32Array([
-            ...color.toArray(),
-            this.opacity,
-        ]);
-    }
+	getUniformBufferData(): Float32Array {
+		const color = this.uniforms.color as Vector3;
+		// Layout: color (vec3) + opacity (f32) = 16 bytes
+		return new Float32Array([...color.toArray(), this.opacity]);
+	}
 
-    getVertexShader(): string {
-        const hasMap = !!this.map;
+	getVertexShader(): string {
+		const hasMap = !!this.map;
 
-        if (hasMap) {
-            return /* wgsl */ `
+		if (hasMap) {
+			return /* wgsl */ `
       const MAX_CAMERAS: u32 = 5u;
 
       struct CameraData {
@@ -95,8 +97,8 @@ export class BasicMaterial extends Material {
           return output;
       }
     `;
-        } else {
-            return /* wgsl */ `
+		} else {
+			return /* wgsl */ `
       const MAX_CAMERAS: u32 = 5u;
 
       struct CameraData {
@@ -135,14 +137,14 @@ export class BasicMaterial extends Material {
           return cameraUniforms.mainViewProjection * worldPos;
       }
     `;
-        }
-    }
+		}
+	}
 
-    getFragmentShader(): string {
-        const hasMap = !!this.map;
+	getFragmentShader(): string {
+		const hasMap = !!this.map;
 
-        if (hasMap) {
-            return /* wgsl */ `
+		if (hasMap) {
+			return /* wgsl */ `
       struct MaterialUniforms {
           color: vec3<f32>,
           opacity: f32,
@@ -159,8 +161,8 @@ export class BasicMaterial extends Material {
           return vec4<f32>(color, texColor.a * material.opacity);
       }
     `;
-        } else {
-            return /* wgsl */ `
+		} else {
+			return /* wgsl */ `
       struct MaterialUniforms {
           color: vec3<f32>,
           opacity: f32,
@@ -172,6 +174,6 @@ export class BasicMaterial extends Material {
           return vec4<f32>(material.color, material.opacity);
       }
     `;
-        }
-    }
+		}
+	}
 }

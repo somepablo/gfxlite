@@ -13,27 +13,26 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "format": "biome format --write",
+    "lint": "biome lint --write",
     "preview": "vite preview",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.3.11",
     "@eslint/js": "^9.29.0",
-    "vitepress": "^1.6.4",
-    "vue": "^3.5.26",
     "@types/node": "^24.0.3",
     "@types/stats.js": "^0.17.4",
     "@webgpu/types": "^0.1.61",
-    "eslint": "^9.29.0",
-    "eslint-config-prettier": "^10.1.5",
     "globals": "^16.2.0",
     "lil-gui": "^0.21.0",
-    "prettier": "3.5.3",
     "stats.js": "^0.17.0",
     "typescript": "~5.8.3",
-    "typescript-eslint": "^8.34.1",
     "vite": "^6.3.5",
-    "vite-plugin-dts": "^4.5.4"
+    "vite-plugin-dts": "^4.5.4",
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.26"
   }
 }

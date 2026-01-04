@@ -1,0 +1,11 @@
+{
+  "files": {
+    "includes": ["src/**/*.ts"]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  }
+}

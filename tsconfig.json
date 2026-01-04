@@ -22,5 +22,5 @@
     "noUncheckedSideEffectImports": true,
     "types": ["@webgpu/types"]
   },
-  "include": ["src", "docs"]
+  "include": ["src"]
 }

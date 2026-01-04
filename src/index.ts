@@ -26,14 +26,14 @@ export { Environment } from "./core/environment/Environment";
 export { GLTFLoader } from "./loaders/GLTFLoader";
 export { OrbitControls } from "./core/controls/OrbitControls";
 export {
-  Vector2,
-  Vector3,
-  Box3,
-  Euler,
-  Quaternion,
-  Matrix3,
-  Matrix4,
-  clamp,
-  degToRad,
-  radToDeg,
+	Vector2,
+	Vector3,
+	Box3,
+	Euler,
+	Quaternion,
+	Matrix3,
+	Matrix4,
+	clamp,
+	degToRad,
+	radToDeg,
 } from "./math";

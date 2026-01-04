@@ -2,90 +2,90 @@ import type { Environment } from "./Environment";
 
 // Convert 32-bit float to 16-bit half float (IEEE 754 binary16)
 function floatToHalf(val: number): number {
-    const floatView = new Float32Array(1);
-    const int32View = new Int32Array(floatView.buffer);
-    floatView[0] = val;
-    const x = int32View[0];
+  const floatView = new Float32Array(1);
+  const int32View = new Int32Array(floatView.buffer);
+  floatView[0] = val;
+  const x = int32View[0];
 
-    // Extract sign, exponent, and mantissa
-    const sign = (x >> 16) & 0x8000;
-    let exp = ((x >> 23) & 0xff) - 127 + 15;
-    let mantissa = (x >> 13) & 0x3ff;
+  // Extract sign, exponent, and mantissa
+  const sign = (x >> 16) & 0x8000;
+  const exp = ((x >> 23) & 0xff) - 127 + 15;
+  let mantissa = (x >> 13) & 0x3ff;
 
-    if (exp <= 0) {
-        // Subnormal or zero
-        if (exp < -10) {
-            return sign;  // Too small, flush to zero
-        }
-        mantissa = (mantissa | 0x400) >> (1 - exp);
-        return sign | mantissa;
-    } else if (exp === 0xff - 127 + 15) {
-        // Infinity or NaN
-        if (mantissa) {
-            return sign | 0x7e00;  // NaN
-        }
-        return sign | 0x7c00;  // Infinity
-    } else if (exp > 30) {
-        // Overflow, clamp to infinity
-        return sign | 0x7c00;
+  if (exp <= 0) {
+    // Subnormal or zero
+    if (exp < -10) {
+      return sign; // Too small, flush to zero
     }
+    mantissa = (mantissa | 0x400) >> (1 - exp);
+    return sign | mantissa;
+  } else if (exp === 0xff - 127 + 15) {
+    // Infinity or NaN
+    if (mantissa) {
+      return sign | 0x7e00; // NaN
+    }
+    return sign | 0x7c00; // Infinity
+  } else if (exp > 30) {
+    // Overflow, clamp to infinity
+    return sign | 0x7c00;
+  }
 
-    return sign | (exp << 10) | mantissa;
+  return sign | (exp << 10) | mantissa;
 }
 
 export class EnvironmentManager {
-    private device: GPUDevice;
+  private device: GPUDevice;
 
-    // Compute pipelines
-    private equirectToCubemapPipeline: GPUComputePipeline | null = null;
-    private irradiancePipeline: GPUComputePipeline | null = null;
-    private prefilterPipeline: GPUComputePipeline | null = null;
-    private brdfPipeline: GPUComputePipeline | null = null;
+  // Compute pipelines
+  private equirectToCubemapPipeline: GPUComputePipeline | null = null;
+  private irradiancePipeline: GPUComputePipeline | null = null;
+  private prefilterPipeline: GPUComputePipeline | null = null;
+  private brdfPipeline: GPUComputePipeline | null = null;
 
-    // Bind group layouts
-    private equirectBindGroupLayout: GPUBindGroupLayout | null = null;
-    private irradianceBindGroupLayout: GPUBindGroupLayout | null = null;
-    private prefilterBindGroupLayout: GPUBindGroupLayout | null = null;
-    private brdfBindGroupLayout: GPUBindGroupLayout | null = null;
+  // Bind group layouts
+  private equirectBindGroupLayout: GPUBindGroupLayout | null = null;
+  private irradianceBindGroupLayout: GPUBindGroupLayout | null = null;
+  private prefilterBindGroupLayout: GPUBindGroupLayout | null = null;
+  private brdfBindGroupLayout: GPUBindGroupLayout | null = null;
 
-    // Environment bind group for rendering
-    private environmentBindGroupLayout: GPUBindGroupLayout | null = null;
+  // Environment bind group for rendering
+  private environmentBindGroupLayout: GPUBindGroupLayout | null = null;
 
-    // Shared resources
-    private brdfLUT: GPUTexture | null = null;
-    public brdfLUTView: GPUTextureView | null = null;
-    private brdfGenerated: boolean = false;
+  // Shared resources
+  private brdfLUT: GPUTexture | null = null;
+  public brdfLUTView: GPUTextureView | null = null;
+  private brdfGenerated: boolean = false;
 
-    // Dummy resources
-    public dummyCubemapView: GPUTextureView | null = null;
-    public cubemapSampler: GPUSampler | null = null;
-    public brdfSampler: GPUSampler | null = null;
+  // Dummy resources
+  public dummyCubemapView: GPUTextureView | null = null;
+  public cubemapSampler: GPUSampler | null = null;
+  public brdfSampler: GPUSampler | null = null;
 
-    // Environment params buffer
-    private envParamsBuffer: GPUBuffer | null = null;
+  // Environment params buffer
+  private envParamsBuffer: GPUBuffer | null = null;
 
-    // Bind group cache
-    private environmentBindGroupCache = new Map<number, GPUBindGroup>();
-    private dummyEnvironmentBindGroup: GPUBindGroup | null = null;
+  // Bind group cache
+  private environmentBindGroupCache = new Map<number, GPUBindGroup>();
+  private dummyEnvironmentBindGroup: GPUBindGroup | null = null;
 
-    constructor(device: GPUDevice) {
-        this.device = device;
-        this.createPipelines();
-        this.createDummyResources();
-        this.createEnvironmentBindGroupLayout();
-        // Generate BRDF LUT immediately - it's reusable across all environments
-        this.generateBRDFLUT();
-    }
+  constructor(device: GPUDevice) {
+    this.device = device;
+    this.createPipelines();
+    this.createDummyResources();
+    this.createEnvironmentBindGroupLayout();
+    // Generate BRDF LUT immediately - it's reusable across all environments
+    this.generateBRDFLUT();
+  }
 
-    private createPipelines(): void {
-        this.createEquirectToCubemapPipeline();
-        this.createIrradiancePipeline();
-        this.createPrefilterPipeline();
-        this.createBRDFPipeline();
-    }
+  private createPipelines(): void {
+    this.createEquirectToCubemapPipeline();
+    this.createIrradiancePipeline();
+    this.createPrefilterPipeline();
+    this.createBRDFPipeline();
+  }
 
-    private createEquirectToCubemapPipeline(): void {
-        const shader = /* wgsl */ `
+  private createEquirectToCubemapPipeline(): void {
+    const shader = /* wgsl */ `
 const PI: f32 = 3.14159265359;
 
 @group(0) @binding(0) var equirectMap: texture_2d<f32>;
@@ -129,50 +129,50 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 }
         `;
 
-        const shaderModule = this.device.createShaderModule({
-            label: "Equirect to Cubemap Shader",
-            code: shader,
-        });
+    const shaderModule = this.device.createShaderModule({
+      label: "Equirect to Cubemap Shader",
+      code: shader,
+    });
 
-        this.equirectBindGroupLayout = this.device.createBindGroupLayout({
-            label: "Equirect to Cubemap Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "float" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    sampler: { type: "filtering" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: {
-                        access: "write-only",
-                        format: "rgba16float",
-                        viewDimension: "2d-array",
-                    },
-                },
-            ],
-        });
+    this.equirectBindGroupLayout = this.device.createBindGroupLayout({
+      label: "Equirect to Cubemap Bind Group Layout",
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          sampler: { type: "filtering" },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: "write-only",
+            format: "rgba16float",
+            viewDimension: "2d-array",
+          },
+        },
+      ],
+    });
 
-        this.equirectToCubemapPipeline = this.device.createComputePipeline({
-            label: "Equirect to Cubemap Pipeline",
-            layout: this.device.createPipelineLayout({
-                bindGroupLayouts: [this.equirectBindGroupLayout],
-            }),
-            compute: {
-                module: shaderModule,
-                entryPoint: "main",
-            },
-        });
-    }
+    this.equirectToCubemapPipeline = this.device.createComputePipeline({
+      label: "Equirect to Cubemap Pipeline",
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [this.equirectBindGroupLayout],
+      }),
+      compute: {
+        module: shaderModule,
+        entryPoint: "main",
+      },
+    });
+  }
 
-    private createIrradiancePipeline(): void {
-        const shader = /* wgsl */ `
+  private createIrradiancePipeline(): void {
+    const shader = /* wgsl */ `
 const PI: f32 = 3.14159265359;
 const SAMPLE_DELTA: f32 = 0.025;
 
@@ -238,50 +238,50 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 }
         `;
 
-        const shaderModule = this.device.createShaderModule({
-            label: "Irradiance Convolution Shader",
-            code: shader,
-        });
+    const shaderModule = this.device.createShaderModule({
+      label: "Irradiance Convolution Shader",
+      code: shader,
+    });
 
-        this.irradianceBindGroupLayout = this.device.createBindGroupLayout({
-            label: "Irradiance Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "float", viewDimension: "cube" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    sampler: { type: "filtering" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: {
-                        access: "write-only",
-                        format: "rgba16float",
-                        viewDimension: "2d-array",
-                    },
-                },
-            ],
-        });
+    this.irradianceBindGroupLayout = this.device.createBindGroupLayout({
+      label: "Irradiance Bind Group Layout",
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float", viewDimension: "cube" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          sampler: { type: "filtering" },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: "write-only",
+            format: "rgba16float",
+            viewDimension: "2d-array",
+          },
+        },
+      ],
+    });
 
-        this.irradiancePipeline = this.device.createComputePipeline({
-            label: "Irradiance Pipeline",
-            layout: this.device.createPipelineLayout({
-                bindGroupLayouts: [this.irradianceBindGroupLayout],
-            }),
-            compute: {
-                module: shaderModule,
-                entryPoint: "main",
-            },
-        });
-    }
+    this.irradiancePipeline = this.device.createComputePipeline({
+      label: "Irradiance Pipeline",
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [this.irradianceBindGroupLayout],
+      }),
+      compute: {
+        module: shaderModule,
+        entryPoint: "main",
+      },
+    });
+  }
 
-    private createPrefilterPipeline(): void {
-        const shader = /* wgsl */ `
+  private createPrefilterPipeline(): void {
+    const shader = /* wgsl */ `
 const PI: f32 = 3.14159265359;
 const SAMPLE_COUNT: u32 = 1024u;
 
@@ -408,55 +408,55 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 }
         `;
 
-        const shaderModule = this.device.createShaderModule({
-            label: "Prefilter Shader",
-            code: shader,
-        });
+    const shaderModule = this.device.createShaderModule({
+      label: "Prefilter Shader",
+      code: shader,
+    });
 
-        this.prefilterBindGroupLayout = this.device.createBindGroupLayout({
-            label: "Prefilter Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "float", viewDimension: "cube" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    sampler: { type: "filtering" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: {
-                        access: "write-only",
-                        format: "rgba16float",
-                        viewDimension: "2d-array",
-                    },
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform" },
-                },
-            ],
-        });
+    this.prefilterBindGroupLayout = this.device.createBindGroupLayout({
+      label: "Prefilter Bind Group Layout",
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float", viewDimension: "cube" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          sampler: { type: "filtering" },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: "write-only",
+            format: "rgba16float",
+            viewDimension: "2d-array",
+          },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "uniform" },
+        },
+      ],
+    });
 
-        this.prefilterPipeline = this.device.createComputePipeline({
-            label: "Prefilter Pipeline",
-            layout: this.device.createPipelineLayout({
-                bindGroupLayouts: [this.prefilterBindGroupLayout],
-            }),
-            compute: {
-                module: shaderModule,
-                entryPoint: "main",
-            },
-        });
-    }
+    this.prefilterPipeline = this.device.createComputePipeline({
+      label: "Prefilter Pipeline",
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [this.prefilterBindGroupLayout],
+      }),
+      compute: {
+        module: shaderModule,
+        entryPoint: "main",
+      },
+    });
+  }
 
-    private createBRDFPipeline(): void {
-        const shader = /* wgsl */ `
+  private createBRDFPipeline(): void {
+    const shader = /* wgsl */ `
 const PI: f32 = 3.14159265359;
 const SAMPLE_COUNT: u32 = 1024u;
 
@@ -557,329 +557,318 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 }
         `;
 
-        const shaderModule = this.device.createShaderModule({
-            label: "BRDF LUT Shader",
-            code: shader,
-        });
+    const shaderModule = this.device.createShaderModule({
+      label: "BRDF LUT Shader",
+      code: shader,
+    });
 
-        this.brdfBindGroupLayout = this.device.createBindGroupLayout({
-            label: "BRDF Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: {
-                        access: "write-only",
-                        format: "rgba16float",
-                    },
-                },
-            ],
-        });
+    this.brdfBindGroupLayout = this.device.createBindGroupLayout({
+      label: "BRDF Bind Group Layout",
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: "write-only",
+            format: "rgba16float",
+          },
+        },
+      ],
+    });
 
-        this.brdfPipeline = this.device.createComputePipeline({
-            label: "BRDF Pipeline",
-            layout: this.device.createPipelineLayout({
-                bindGroupLayouts: [this.brdfBindGroupLayout],
-            }),
-            compute: {
-                module: shaderModule,
-                entryPoint: "main",
-            },
-        });
+    this.brdfPipeline = this.device.createComputePipeline({
+      label: "BRDF Pipeline",
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [this.brdfBindGroupLayout],
+      }),
+      compute: {
+        module: shaderModule,
+        entryPoint: "main",
+      },
+    });
+  }
+
+  private createDummyResources(): void {
+    // Create dummy cubemap (1x1 black)
+    const dummyCubemap = this.device.createTexture({
+      label: "Dummy Cubemap",
+      size: [1, 1, 6],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      dimension: "2d",
+    });
+
+    const blackPixel = new Float32Array([0, 0, 0, 1]);
+    for (let face = 0; face < 6; face++) {
+      this.device.queue.writeTexture(
+        { texture: dummyCubemap, origin: [0, 0, face] },
+        blackPixel,
+        { bytesPerRow: 8 },
+        [1, 1, 1]
+      );
     }
 
-    private createDummyResources(): void {
-        // Create dummy cubemap (1x1 black)
-        const dummyCubemap = this.device.createTexture({
-            label: "Dummy Cubemap",
-            size: [1, 1, 6],
-            format: "rgba16float",
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-            dimension: "2d",
-        });
+    this.dummyCubemapView = dummyCubemap.createView({
+      dimension: "cube",
+    });
 
-        const blackPixel = new Float32Array([0, 0, 0, 1]);
-        for (let face = 0; face < 6; face++) {
-            this.device.queue.writeTexture(
-                { texture: dummyCubemap, origin: [0, 0, face] },
-                blackPixel,
-                { bytesPerRow: 8 },
-                [1, 1, 1]
-            );
-        }
+    // Create samplers
+    this.cubemapSampler = this.device.createSampler({
+      label: "Cubemap Sampler",
+      minFilter: "linear",
+      magFilter: "linear",
+      mipmapFilter: "linear",
+    });
 
-        this.dummyCubemapView = dummyCubemap.createView({
-            dimension: "cube",
-        });
+    this.brdfSampler = this.device.createSampler({
+      label: "BRDF Sampler",
+      minFilter: "linear",
+      magFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
 
-        // Create samplers
-        this.cubemapSampler = this.device.createSampler({
-            label: "Cubemap Sampler",
-            minFilter: "linear",
-            magFilter: "linear",
-            mipmapFilter: "linear",
-        });
+    // Create environment params buffer
+    this.envParamsBuffer = this.device.createBuffer({
+      label: "Environment Params Buffer",
+      size: 16, // vec4 (intensity, hasEnvironment, pad, pad)
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+  }
 
-        this.brdfSampler = this.device.createSampler({
-            label: "BRDF Sampler",
-            minFilter: "linear",
-            magFilter: "linear",
-            addressModeU: "clamp-to-edge",
-            addressModeV: "clamp-to-edge",
-        });
+  private createEnvironmentBindGroupLayout(): void {
+    this.environmentBindGroupLayout = this.device.createBindGroupLayout({
+      label: "Environment Bind Group Layout",
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "cube" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "cube" },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float" },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" },
+        },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" },
+        },
+        {
+          binding: 5,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" },
+        },
+      ],
+    });
+  }
 
-        // Create environment params buffer
-        this.envParamsBuffer = this.device.createBuffer({
-            label: "Environment Params Buffer",
-            size: 16, // vec4 (intensity, hasEnvironment, pad, pad)
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
+  private generateBRDFLUT(): void {
+    if (this.brdfGenerated) return;
+
+    const size = 256;
+    this.brdfLUT = this.device.createTexture({
+      label: "BRDF LUT",
+      size: [size, size],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+    });
+    this.brdfLUTView = this.brdfLUT.createView();
+
+    const bindGroup = this.device.createBindGroup({
+      layout: this.brdfBindGroupLayout!,
+      entries: [{ binding: 0, resource: this.brdfLUTView }],
+    });
+
+    const commandEncoder = this.device.createCommandEncoder();
+    const computePass = commandEncoder.beginComputePass();
+    computePass.setPipeline(this.brdfPipeline!);
+    computePass.setBindGroup(0, bindGroup);
+    computePass.dispatchWorkgroups(Math.ceil(size / 8), Math.ceil(size / 8));
+    computePass.end();
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    this.brdfGenerated = true;
+  }
+
+  processEnvironment(environment: Environment): void {
+    if (!environment.hdrData || !environment.needsUpdate) return;
+
+    // Ensure BRDF LUT is generated
+    this.generateBRDFLUT();
+
+    const resolution = environment.resolution;
+    const mipLevels = environment.specularMipLevels;
+
+    // 1. Upload equirectangular HDR to texture
+    environment.equirectTexture?.destroy();
+    environment.equirectTexture = this.device.createTexture({
+      label: "Equirectangular HDR",
+      size: [environment.hdrWidth, environment.hdrHeight],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+
+    // Convert Float32 HDR data to Float16 for GPU texture
+    // WebGPU's writeTexture requires data format to match texture format
+    const float32Data = environment.hdrData;
+    const float16Data = new Uint16Array(float32Data.length);
+    for (let i = 0; i < float32Data.length; i++) {
+      float16Data[i] = floatToHalf(float32Data[i]);
     }
 
-    private createEnvironmentBindGroupLayout(): void {
-        this.environmentBindGroupLayout = this.device.createBindGroupLayout({
-            label: "Environment Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    texture: { sampleType: "float", viewDimension: "cube" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    texture: { sampleType: "float", viewDimension: "cube" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    texture: { sampleType: "float" },
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    sampler: { type: "filtering" },
-                },
-                {
-                    binding: 4,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    sampler: { type: "filtering" },
-                },
-                {
-                    binding: 5,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    buffer: { type: "uniform" },
-                },
-            ],
-        });
-    }
+    this.device.queue.writeTexture(
+      { texture: environment.equirectTexture },
+      float16Data,
+      { bytesPerRow: environment.hdrWidth * 8 }, // 4 channels × 2 bytes (half float) = 8 bytes/pixel
+      [environment.hdrWidth, environment.hdrHeight]
+    );
 
-    private generateBRDFLUT(): void {
-        if (this.brdfGenerated) return;
+    // 2. Create cubemap with mipmaps
+    environment.cubemap?.destroy();
+    environment.cubemap = this.device.createTexture({
+      label: "Environment Cubemap",
+      size: [resolution, resolution, 6],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      mipLevelCount: Math.floor(Math.log2(resolution)) + 1,
+      dimension: "2d",
+    });
+    environment.cubemapView = environment.cubemap.createView({
+      dimension: "cube",
+    });
 
-        const size = 256;
-        this.brdfLUT = this.device.createTexture({
-            label: "BRDF LUT",
-            size: [size, size],
-            format: "rgba16float",
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.STORAGE_BINDING,
-        });
-        this.brdfLUTView = this.brdfLUT.createView();
+    // 3. Create irradiance map (low-res)
+    const irradianceSize = 32;
+    environment.irradianceMap?.destroy();
+    environment.irradianceMap = this.device.createTexture({
+      label: "Irradiance Map",
+      size: [irradianceSize, irradianceSize, 6],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      dimension: "2d",
+    });
+    environment.irradianceMapView = environment.irradianceMap.createView({
+      dimension: "cube",
+    });
 
-        const bindGroup = this.device.createBindGroup({
-            layout: this.brdfBindGroupLayout!,
-            entries: [{ binding: 0, resource: this.brdfLUTView }],
-        });
+    // 4. Create prefiltered map with mip levels
+    environment.prefilteredMap?.destroy();
+    environment.prefilteredMap = this.device.createTexture({
+      label: "Prefiltered Map",
+      size: [resolution, resolution, 6],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      mipLevelCount: mipLevels,
+      dimension: "2d",
+    });
+    environment.prefilteredMapView = environment.prefilteredMap.createView({
+      dimension: "cube",
+    });
 
-        const commandEncoder = this.device.createCommandEncoder();
-        const computePass = commandEncoder.beginComputePass();
-        computePass.setPipeline(this.brdfPipeline!);
-        computePass.setBindGroup(0, bindGroup);
-        computePass.dispatchWorkgroups(
-            Math.ceil(size / 8),
-            Math.ceil(size / 8)
-        );
-        computePass.end();
-        this.device.queue.submit([commandEncoder.finish()]);
+    const commandEncoder = this.device.createCommandEncoder({
+      label: "Environment Processing",
+    });
 
-        this.brdfGenerated = true;
-    }
+    // Step 1: Convert equirectangular to cubemap
+    this.convertEquirectToCubemap(
+      commandEncoder,
+      environment.equirectTexture,
+      environment.cubemap,
+      resolution
+    );
 
-    processEnvironment(environment: Environment): void {
-        if (!environment.hdrData || !environment.needsUpdate) return;
+    // Generate cubemap mipmaps for prefilter sampling
+    this.generateCubemapMipmaps(
+      commandEncoder,
+      environment.cubemap,
+      resolution
+    );
 
-        // Ensure BRDF LUT is generated
-        this.generateBRDFLUT();
+    // Step 2: Generate irradiance map
+    this.generateIrradianceMap(
+      commandEncoder,
+      environment.cubemap,
+      environment.irradianceMap,
+      irradianceSize
+    );
 
-        const resolution = environment.resolution;
-        const mipLevels = environment.specularMipLevels;
+    // Step 3: Generate prefiltered specular map
+    this.generatePrefilteredMap(
+      commandEncoder,
+      environment.cubemap,
+      environment.prefilteredMap,
+      resolution,
+      mipLevels
+    );
 
-        // 1. Upload equirectangular HDR to texture
-        environment.equirectTexture?.destroy();
-        environment.equirectTexture = this.device.createTexture({
-            label: "Equirectangular HDR",
-            size: [environment.hdrWidth, environment.hdrHeight],
-            format: "rgba16float",
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-        });
+    this.device.queue.submit([commandEncoder.finish()]);
 
-        // Convert Float32 HDR data to Float16 for GPU texture
-        // WebGPU's writeTexture requires data format to match texture format
-        const float32Data = environment.hdrData;
-        const float16Data = new Uint16Array(float32Data.length);
-        for (let i = 0; i < float32Data.length; i++) {
-            float16Data[i] = floatToHalf(float32Data[i]);
-        }
+    environment.needsUpdate = false;
 
-        this.device.queue.writeTexture(
-            { texture: environment.equirectTexture },
-            float16Data,
-            { bytesPerRow: environment.hdrWidth * 8 },  // 4 channels × 2 bytes (half float) = 8 bytes/pixel
-            [environment.hdrWidth, environment.hdrHeight]
-        );
+    // Invalidate bind group cache
+    this.environmentBindGroupCache.delete(environment.id);
+  }
 
-        // 2. Create cubemap with mipmaps
-        environment.cubemap?.destroy();
-        environment.cubemap = this.device.createTexture({
-            label: "Environment Cubemap",
-            size: [resolution, resolution, 6],
-            format: "rgba16float",
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.STORAGE_BINDING,
-            mipLevelCount: Math.floor(Math.log2(resolution)) + 1,
-            dimension: "2d",
-        });
-        environment.cubemapView = environment.cubemap.createView({
-            dimension: "cube",
-        });
+  private convertEquirectToCubemap(
+    commandEncoder: GPUCommandEncoder,
+    equirectTexture: GPUTexture,
+    cubemap: GPUTexture,
+    resolution: number
+  ): void {
+    const equirectView = equirectTexture.createView();
+    const cubemapView = cubemap.createView({
+      dimension: "2d-array",
+      baseMipLevel: 0,
+      mipLevelCount: 1,
+    });
 
-        // 3. Create irradiance map (low-res)
-        const irradianceSize = 32;
-        environment.irradianceMap?.destroy();
-        environment.irradianceMap = this.device.createTexture({
-            label: "Irradiance Map",
-            size: [irradianceSize, irradianceSize, 6],
-            format: "rgba16float",
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.STORAGE_BINDING,
-            dimension: "2d",
-        });
-        environment.irradianceMapView = environment.irradianceMap.createView({
-            dimension: "cube",
-        });
+    const sampler = this.device.createSampler({
+      minFilter: "linear",
+      magFilter: "linear",
+    });
 
-        // 4. Create prefiltered map with mip levels
-        environment.prefilteredMap?.destroy();
-        environment.prefilteredMap = this.device.createTexture({
-            label: "Prefiltered Map",
-            size: [resolution, resolution, 6],
-            format: "rgba16float",
-            usage:
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.STORAGE_BINDING,
-            mipLevelCount: mipLevels,
-            dimension: "2d",
-        });
-        environment.prefilteredMapView = environment.prefilteredMap.createView({
-            dimension: "cube",
-        });
+    const bindGroup = this.device.createBindGroup({
+      layout: this.equirectBindGroupLayout!,
+      entries: [
+        { binding: 0, resource: equirectView },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: cubemapView },
+      ],
+    });
 
-        const commandEncoder = this.device.createCommandEncoder({
-            label: "Environment Processing",
-        });
+    const computePass = commandEncoder.beginComputePass();
+    computePass.setPipeline(this.equirectToCubemapPipeline!);
+    computePass.setBindGroup(0, bindGroup);
+    computePass.dispatchWorkgroups(
+      Math.ceil(resolution / 8),
+      Math.ceil(resolution / 8),
+      6
+    );
+    computePass.end();
+  }
 
-        // Step 1: Convert equirectangular to cubemap
-        this.convertEquirectToCubemap(
-            commandEncoder,
-            environment.equirectTexture,
-            environment.cubemap,
-            resolution
-        );
+  private generateCubemapMipmaps(
+    commandEncoder: GPUCommandEncoder,
+    cubemap: GPUTexture,
+    resolution: number
+  ): void {
+    // Simple box filter mipmap generation for cubemaps
+    // Note: This is a simplified approach; for better quality, use proper cubemap filtering
+    const mipLevels = Math.floor(Math.log2(resolution)) + 1;
 
-        // Generate cubemap mipmaps for prefilter sampling
-        this.generateCubemapMipmaps(
-            commandEncoder,
-            environment.cubemap,
-            resolution
-        );
-
-        // Step 2: Generate irradiance map
-        this.generateIrradianceMap(
-            commandEncoder,
-            environment.cubemap,
-            environment.irradianceMap,
-            irradianceSize
-        );
-
-        // Step 3: Generate prefiltered specular map
-        this.generatePrefilteredMap(
-            commandEncoder,
-            environment.cubemap,
-            environment.prefilteredMap,
-            resolution,
-            mipLevels
-        );
-
-        this.device.queue.submit([commandEncoder.finish()]);
-
-        environment.needsUpdate = false;
-
-        // Invalidate bind group cache
-        this.environmentBindGroupCache.delete(environment.id);
-    }
-
-    private convertEquirectToCubemap(
-        commandEncoder: GPUCommandEncoder,
-        equirectTexture: GPUTexture,
-        cubemap: GPUTexture,
-        resolution: number
-    ): void {
-        const equirectView = equirectTexture.createView();
-        const cubemapView = cubemap.createView({
-            dimension: "2d-array",
-            baseMipLevel: 0,
-            mipLevelCount: 1,
-        });
-
-        const sampler = this.device.createSampler({
-            minFilter: "linear",
-            magFilter: "linear",
-        });
-
-        const bindGroup = this.device.createBindGroup({
-            layout: this.equirectBindGroupLayout!,
-            entries: [
-                { binding: 0, resource: equirectView },
-                { binding: 1, resource: sampler },
-                { binding: 2, resource: cubemapView },
-            ],
-        });
-
-        const computePass = commandEncoder.beginComputePass();
-        computePass.setPipeline(this.equirectToCubemapPipeline!);
-        computePass.setBindGroup(0, bindGroup);
-        computePass.dispatchWorkgroups(
-            Math.ceil(resolution / 8),
-            Math.ceil(resolution / 8),
-            6
-        );
-        computePass.end();
-    }
-
-    private generateCubemapMipmaps(
-        commandEncoder: GPUCommandEncoder,
-        cubemap: GPUTexture,
-        resolution: number
-    ): void {
-        // Simple box filter mipmap generation for cubemaps
-        // Note: This is a simplified approach; for better quality, use proper cubemap filtering
-        const mipLevels = Math.floor(Math.log2(resolution)) + 1;
-
-        const mipmapShader = /* wgsl */ `
+    const mipmapShader = /* wgsl */ `
 @group(0) @binding(0) var srcTexture: texture_2d_array<f32>;
 @group(0) @binding(1) var dstTexture: texture_storage_2d_array<rgba16float, write>;
 
@@ -903,243 +892,243 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 }
         `;
 
-        const shaderModule = this.device.createShaderModule({
-            code: mipmapShader,
-        });
+    const shaderModule = this.device.createShaderModule({
+      code: mipmapShader,
+    });
 
-        const bindGroupLayout = this.device.createBindGroupLayout({
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "float", viewDimension: "2d-array" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: {
-                        access: "write-only",
-                        format: "rgba16float",
-                        viewDimension: "2d-array",
-                    },
-                },
-            ],
-        });
+    const bindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: "float", viewDimension: "2d-array" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: "write-only",
+            format: "rgba16float",
+            viewDimension: "2d-array",
+          },
+        },
+      ],
+    });
 
-        const pipeline = this.device.createComputePipeline({
-            layout: this.device.createPipelineLayout({
-                bindGroupLayouts: [bindGroupLayout],
-            }),
-            compute: { module: shaderModule, entryPoint: "main" },
-        });
+    const pipeline = this.device.createComputePipeline({
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [bindGroupLayout],
+      }),
+      compute: { module: shaderModule, entryPoint: "main" },
+    });
 
-        let srcWidth = resolution;
-        let srcHeight = resolution;
+    let srcWidth = resolution;
+    let srcHeight = resolution;
 
-        for (let level = 1; level < mipLevels; level++) {
-            const dstWidth = Math.max(1, srcWidth >> 1);
-            const dstHeight = Math.max(1, srcHeight >> 1);
+    for (let level = 1; level < mipLevels; level++) {
+      const dstWidth = Math.max(1, srcWidth >> 1);
+      const dstHeight = Math.max(1, srcHeight >> 1);
 
-            const srcView = cubemap.createView({
-                dimension: "2d-array",
-                baseMipLevel: level - 1,
-                mipLevelCount: 1,
-            });
+      const srcView = cubemap.createView({
+        dimension: "2d-array",
+        baseMipLevel: level - 1,
+        mipLevelCount: 1,
+      });
 
-            const dstView = cubemap.createView({
-                dimension: "2d-array",
-                baseMipLevel: level,
-                mipLevelCount: 1,
-            });
+      const dstView = cubemap.createView({
+        dimension: "2d-array",
+        baseMipLevel: level,
+        mipLevelCount: 1,
+      });
 
-            const bindGroup = this.device.createBindGroup({
-                layout: bindGroupLayout,
-                entries: [
-                    { binding: 0, resource: srcView },
-                    { binding: 1, resource: dstView },
-                ],
-            });
+      const bindGroup = this.device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [
+          { binding: 0, resource: srcView },
+          { binding: 1, resource: dstView },
+        ],
+      });
 
-            const computePass = commandEncoder.beginComputePass();
-            computePass.setPipeline(pipeline);
-            computePass.setBindGroup(0, bindGroup);
-            computePass.dispatchWorkgroups(
-                Math.ceil(dstWidth / 8),
-                Math.ceil(dstHeight / 8),
-                6
-            );
-            computePass.end();
+      const computePass = commandEncoder.beginComputePass();
+      computePass.setPipeline(pipeline);
+      computePass.setBindGroup(0, bindGroup);
+      computePass.dispatchWorkgroups(
+        Math.ceil(dstWidth / 8),
+        Math.ceil(dstHeight / 8),
+        6
+      );
+      computePass.end();
 
-            srcWidth = dstWidth;
-            srcHeight = dstHeight;
-        }
+      srcWidth = dstWidth;
+      srcHeight = dstHeight;
+    }
+  }
+
+  private generateIrradianceMap(
+    commandEncoder: GPUCommandEncoder,
+    cubemap: GPUTexture,
+    irradianceMap: GPUTexture,
+    irradianceSize: number
+  ): void {
+    const cubemapView = cubemap.createView({ dimension: "cube" });
+    const irradianceView = irradianceMap.createView({
+      dimension: "2d-array",
+    });
+
+    const bindGroup = this.device.createBindGroup({
+      layout: this.irradianceBindGroupLayout!,
+      entries: [
+        { binding: 0, resource: cubemapView },
+        { binding: 1, resource: this.cubemapSampler! },
+        { binding: 2, resource: irradianceView },
+      ],
+    });
+
+    const computePass = commandEncoder.beginComputePass();
+    computePass.setPipeline(this.irradiancePipeline!);
+    computePass.setBindGroup(0, bindGroup);
+    computePass.dispatchWorkgroups(
+      Math.ceil(irradianceSize / 8),
+      Math.ceil(irradianceSize / 8),
+      6
+    );
+    computePass.end();
+  }
+
+  private generatePrefilteredMap(
+    commandEncoder: GPUCommandEncoder,
+    cubemap: GPUTexture,
+    prefilteredMap: GPUTexture,
+    resolution: number,
+    mipLevels: number
+  ): void {
+    const cubemapView = cubemap.createView({ dimension: "cube" });
+
+    for (let mip = 0; mip < mipLevels; mip++) {
+      const mipSize = Math.max(1, resolution >> mip);
+      const roughness = mip / (mipLevels - 1);
+
+      const prefilteredView = prefilteredMap.createView({
+        dimension: "2d-array",
+        baseMipLevel: mip,
+        mipLevelCount: 1,
+      });
+
+      // Create params buffer for this mip level
+      const paramsBuffer = this.device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(
+        paramsBuffer,
+        0,
+        new Float32Array([roughness, resolution])
+      );
+
+      const bindGroup = this.device.createBindGroup({
+        layout: this.prefilterBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: cubemapView },
+          { binding: 1, resource: this.cubemapSampler! },
+          { binding: 2, resource: prefilteredView },
+          { binding: 3, resource: { buffer: paramsBuffer } },
+        ],
+      });
+
+      const computePass = commandEncoder.beginComputePass();
+      computePass.setPipeline(this.prefilterPipeline!);
+      computePass.setBindGroup(0, bindGroup);
+      computePass.dispatchWorkgroups(
+        Math.ceil(mipSize / 8),
+        Math.ceil(mipSize / 8),
+        6
+      );
+      computePass.end();
+    }
+  }
+
+  getEnvironmentBindGroupLayout(): GPUBindGroupLayout {
+    return this.environmentBindGroupLayout!;
+  }
+
+  getEnvironmentBindGroup(environment: Environment | null): GPUBindGroup {
+    // Ensure BRDF LUT exists
+    if (!this.brdfGenerated) {
+      this.generateBRDFLUT();
     }
 
-    private generateIrradianceMap(
-        commandEncoder: GPUCommandEncoder,
-        cubemap: GPUTexture,
-        irradianceMap: GPUTexture,
-        irradianceSize: number
-    ): void {
-        const cubemapView = cubemap.createView({ dimension: "cube" });
-        const irradianceView = irradianceMap.createView({
-            dimension: "2d-array",
-        });
-
-        const bindGroup = this.device.createBindGroup({
-            layout: this.irradianceBindGroupLayout!,
-            entries: [
-                { binding: 0, resource: cubemapView },
-                { binding: 1, resource: this.cubemapSampler! },
-                { binding: 2, resource: irradianceView },
-            ],
-        });
-
-        const computePass = commandEncoder.beginComputePass();
-        computePass.setPipeline(this.irradiancePipeline!);
-        computePass.setBindGroup(0, bindGroup);
-        computePass.dispatchWorkgroups(
-            Math.ceil(irradianceSize / 8),
-            Math.ceil(irradianceSize / 8),
-            6
+    if (!environment || !environment.irradianceMapView) {
+      // Return dummy bind group
+      if (!this.dummyEnvironmentBindGroup) {
+        this.device.queue.writeBuffer(
+          this.envParamsBuffer!,
+          0,
+          new Float32Array([1.0, 0.0, 0.0, 0.0])
         );
-        computePass.end();
+
+        this.dummyEnvironmentBindGroup = this.device.createBindGroup({
+          layout: this.environmentBindGroupLayout!,
+          entries: [
+            { binding: 0, resource: this.dummyCubemapView! },
+            { binding: 1, resource: this.dummyCubemapView! },
+            { binding: 2, resource: this.brdfLUTView! },
+            { binding: 3, resource: this.cubemapSampler! },
+            { binding: 4, resource: this.brdfSampler! },
+            {
+              binding: 5,
+              resource: { buffer: this.envParamsBuffer! },
+            },
+          ],
+        });
+      }
+      return this.dummyEnvironmentBindGroup;
     }
 
-    private generatePrefilteredMap(
-        commandEncoder: GPUCommandEncoder,
-        cubemap: GPUTexture,
-        prefilteredMap: GPUTexture,
-        resolution: number,
-        mipLevels: number
-    ): void {
-        const cubemapView = cubemap.createView({ dimension: "cube" });
+    let bindGroup = this.environmentBindGroupCache.get(environment.id);
+    if (!bindGroup) {
+      // Update params buffer
+      this.device.queue.writeBuffer(
+        this.envParamsBuffer!,
+        0,
+        new Float32Array([environment.intensity, 1.0, 0.0, 0.0])
+      );
 
-        for (let mip = 0; mip < mipLevels; mip++) {
-            const mipSize = Math.max(1, resolution >> mip);
-            const roughness = mip / (mipLevels - 1);
+      bindGroup = this.device.createBindGroup({
+        layout: this.environmentBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: environment.irradianceMapView! },
+          { binding: 1, resource: environment.prefilteredMapView! },
+          { binding: 2, resource: this.brdfLUTView! },
+          { binding: 3, resource: this.cubemapSampler! },
+          { binding: 4, resource: this.brdfSampler! },
+          {
+            binding: 5,
+            resource: { buffer: this.envParamsBuffer! },
+          },
+        ],
+      });
 
-            const prefilteredView = prefilteredMap.createView({
-                dimension: "2d-array",
-                baseMipLevel: mip,
-                mipLevelCount: 1,
-            });
-
-            // Create params buffer for this mip level
-            const paramsBuffer = this.device.createBuffer({
-                size: 16,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
-            this.device.queue.writeBuffer(
-                paramsBuffer,
-                0,
-                new Float32Array([roughness, resolution])
-            );
-
-            const bindGroup = this.device.createBindGroup({
-                layout: this.prefilterBindGroupLayout!,
-                entries: [
-                    { binding: 0, resource: cubemapView },
-                    { binding: 1, resource: this.cubemapSampler! },
-                    { binding: 2, resource: prefilteredView },
-                    { binding: 3, resource: { buffer: paramsBuffer } },
-                ],
-            });
-
-            const computePass = commandEncoder.beginComputePass();
-            computePass.setPipeline(this.prefilterPipeline!);
-            computePass.setBindGroup(0, bindGroup);
-            computePass.dispatchWorkgroups(
-                Math.ceil(mipSize / 8),
-                Math.ceil(mipSize / 8),
-                6
-            );
-            computePass.end();
-        }
+      this.environmentBindGroupCache.set(environment.id, bindGroup);
     }
 
-    getEnvironmentBindGroupLayout(): GPUBindGroupLayout {
-        return this.environmentBindGroupLayout!;
-    }
+    return bindGroup;
+  }
 
-    getEnvironmentBindGroup(environment: Environment | null): GPUBindGroup {
-        // Ensure BRDF LUT exists
-        if (!this.brdfGenerated) {
-            this.generateBRDFLUT();
-        }
+  getSkyboxResources(environment: Environment | null): {
+    cubemapView: GPUTextureView;
+    sampler: GPUSampler;
+    intensity: number;
+  } {
+    return {
+      cubemapView: environment?.cubemapView ?? this.dummyCubemapView!,
+      sampler: this.cubemapSampler!,
+      intensity: environment?.intensity ?? 1.0,
+    };
+  }
 
-        if (!environment || !environment.irradianceMapView) {
-            // Return dummy bind group
-            if (!this.dummyEnvironmentBindGroup) {
-                this.device.queue.writeBuffer(
-                    this.envParamsBuffer!,
-                    0,
-                    new Float32Array([1.0, 0.0, 0.0, 0.0])
-                );
-
-                this.dummyEnvironmentBindGroup = this.device.createBindGroup({
-                    layout: this.environmentBindGroupLayout!,
-                    entries: [
-                        { binding: 0, resource: this.dummyCubemapView! },
-                        { binding: 1, resource: this.dummyCubemapView! },
-                        { binding: 2, resource: this.brdfLUTView! },
-                        { binding: 3, resource: this.cubemapSampler! },
-                        { binding: 4, resource: this.brdfSampler! },
-                        {
-                            binding: 5,
-                            resource: { buffer: this.envParamsBuffer! },
-                        },
-                    ],
-                });
-            }
-            return this.dummyEnvironmentBindGroup;
-        }
-
-        let bindGroup = this.environmentBindGroupCache.get(environment.id);
-        if (!bindGroup) {
-            // Update params buffer
-            this.device.queue.writeBuffer(
-                this.envParamsBuffer!,
-                0,
-                new Float32Array([environment.intensity, 1.0, 0.0, 0.0])
-            );
-
-            bindGroup = this.device.createBindGroup({
-                layout: this.environmentBindGroupLayout!,
-                entries: [
-                    { binding: 0, resource: environment.irradianceMapView! },
-                    { binding: 1, resource: environment.prefilteredMapView! },
-                    { binding: 2, resource: this.brdfLUTView! },
-                    { binding: 3, resource: this.cubemapSampler! },
-                    { binding: 4, resource: this.brdfSampler! },
-                    {
-                        binding: 5,
-                        resource: { buffer: this.envParamsBuffer! },
-                    },
-                ],
-            });
-
-            this.environmentBindGroupCache.set(environment.id, bindGroup);
-        }
-
-        return bindGroup;
-    }
-
-    getSkyboxResources(environment: Environment | null): {
-        cubemapView: GPUTextureView;
-        sampler: GPUSampler;
-        intensity: number;
-    } {
-        return {
-            cubemapView: environment?.cubemapView ?? this.dummyCubemapView!,
-            sampler: this.cubemapSampler!,
-            intensity: environment?.intensity ?? 1.0,
-        };
-    }
-
-    dispose(): void {
-        this.brdfLUT?.destroy();
-        this.envParamsBuffer?.destroy();
-        this.environmentBindGroupCache.clear();
-    }
+  dispose(): void {
+    this.brdfLUT?.destroy();
+    this.envParamsBuffer?.destroy();
+    this.environmentBindGroupCache.clear();
+  }
 }

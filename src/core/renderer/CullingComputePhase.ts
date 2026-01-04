@@ -126,79 +126,81 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 `;
 
 export class CullingComputePhase extends RenderPhase {
-    private cullingPipeline: GPUComputePipeline | null = null;
-    private batchManager: BatchManager | null = null;
+	private cullingPipeline: GPUComputePipeline | null = null;
+	private batchManager: BatchManager | null = null;
 
-    constructor(device: GPUDevice) {
-        super(device, "Unified Culling Compute Phase");
-    }
+	constructor(device: GPUDevice) {
+		super(device, "Unified Culling Compute Phase");
+	}
 
-    setBatchManager(batchManager: BatchManager): void {
-        this.batchManager = batchManager;
-        this.initPipeline();
-    }
+	setBatchManager(batchManager: BatchManager): void {
+		this.batchManager = batchManager;
+		this.initPipeline();
+	}
 
-    private initPipeline(): void {
-        if (!this.batchManager) return;
+	private initPipeline(): void {
+		if (!this.batchManager) return;
 
-        const shaderModule = this.device.createShaderModule({
-            label: "Unified Culling Shader",
-            code: UNIFIED_CULLING_SHADER,
-        });
+		const shaderModule = this.device.createShaderModule({
+			label: "Unified Culling Shader",
+			code: UNIFIED_CULLING_SHADER,
+		});
 
-        this.cullingPipeline = this.device.createComputePipeline({
-            label: "Unified Culling Pipeline",
-            layout: this.device.createPipelineLayout({
-                bindGroupLayouts: [
-                    this.batchManager.getCameraBindGroupLayout(),
-                    this.batchManager.getCullBindGroupLayout(),
-                ],
-            }),
-            compute: {
-                module: shaderModule,
-                entryPoint: "main",
-            },
-        });
-    }
+		this.cullingPipeline = this.device.createComputePipeline({
+			label: "Unified Culling Pipeline",
+			layout: this.device.createPipelineLayout({
+				bindGroupLayouts: [
+					this.batchManager.getCameraBindGroupLayout(),
+					this.batchManager.getCullBindGroupLayout(),
+				],
+			}),
+			compute: {
+				module: shaderModule,
+				entryPoint: "main",
+			},
+		});
+	}
 
-    prepare(_scene: Scene, _camera: Camera): void {
-        // Nothing to do here - BatchManager handles preparation
-    }
+	prepare(_scene: Scene, _camera: Camera): void {
+		// Nothing to do here - BatchManager handles preparation
+	}
 
-    execute(commandEncoder: GPUCommandEncoder): void {
-        if (!this.cullingPipeline || !this.batchManager) return;
+	execute(commandEncoder: GPUCommandEncoder): void {
+		if (!this.cullingPipeline || !this.batchManager) return;
 
-        const batches = this.batchManager.getBatches();
-        if (batches.length === 0) return;
+		const batches = this.batchManager.getBatches();
+		if (batches.length === 0) return;
 
-        const cameraBindGroup = this.batchManager.getCameraBindGroup();
-        if (!cameraBindGroup) return;
+		const cameraBindGroup = this.batchManager.getCameraBindGroup();
+		if (!cameraBindGroup) return;
 
-        // Clear all indirect buffer instanceCounts
-        for (const batch of batches) {
-            // Clear instanceCount for all cameras (offset 4 bytes into each 20-byte indirect args)
-            for (let cam = 0; cam < MAX_CAMERAS; cam++) {
-                const offset = cam * 20 + 4; // Skip indexCount (4 bytes), clear instanceCount (4 bytes)
-                commandEncoder.clearBuffer(batch.indirectBuffer, offset, 4);
-            }
-        }
+		// Clear all indirect buffer instanceCounts
+		for (const batch of batches) {
+			// Clear instanceCount for all cameras (offset 4 bytes into each 20-byte indirect args)
+			for (let cam = 0; cam < MAX_CAMERAS; cam++) {
+				const offset = cam * 20 + 4; // Skip indexCount (4 bytes), clear instanceCount (4 bytes)
+				commandEncoder.clearBuffer(batch.indirectBuffer, offset, 4);
+			}
+		}
 
-        // Single compute pass for all batches
-        const computePass = commandEncoder.beginComputePass({
-            label: "Unified Frustum Culling",
-        });
+		// Single compute pass for all batches
+		const computePass = commandEncoder.beginComputePass({
+			label: "Unified Frustum Culling",
+		});
 
-        computePass.setPipeline(this.cullingPipeline);
-        computePass.setBindGroup(0, cameraBindGroup);
+		computePass.setPipeline(this.cullingPipeline);
+		computePass.setBindGroup(0, cameraBindGroup);
 
-        for (const batch of batches) {
-            const cullBindGroup = this.batchManager.getCullBindGroup(batch);
-            computePass.setBindGroup(1, cullBindGroup);
+		for (const batch of batches) {
+			const cullBindGroup = this.batchManager.getCullBindGroup(batch);
+			computePass.setBindGroup(1, cullBindGroup);
 
-            const workgroupCount = Math.ceil(batch.instanceCount / CULLING_WORKGROUP_SIZE);
-            computePass.dispatchWorkgroups(workgroupCount);
-        }
+			const workgroupCount = Math.ceil(
+				batch.instanceCount / CULLING_WORKGROUP_SIZE,
+			);
+			computePass.dispatchWorkgroups(workgroupCount);
+		}
 
-        computePass.end();
-    }
+		computePass.end();
+	}
 }

@@ -11,14 +11,14 @@ export interface ExampleContext {
 const props = defineProps<{
   title: string;
   setup: (
-    ctx: ExampleContext,
+    ctx: ExampleContext
   ) => void | (() => void) | Promise<void | (() => void)>;
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const error = ref<string | null>(null);
 
-let cleanup: (() => void) | void = undefined;
+let cleanup: (() => void) | void;
 
 onMounted(async () => {
   if (!canvasRef.value) return;

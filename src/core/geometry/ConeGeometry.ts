@@ -1,141 +1,141 @@
 import { Geometry } from "../geometry/Geometry";
 
 export class ConeGeometry extends Geometry {
-  radius: number;
-  height: number;
-  radialSegments: number;
-  heightSegments: number;
-  openEnded: boolean;
+	radius: number;
+	height: number;
+	radialSegments: number;
+	heightSegments: number;
+	openEnded: boolean;
 
-  constructor({
-    radius = 1,
-    height = 1,
-    radialSegments = 32,
-    heightSegments = 1,
-    openEnded = false,
-  } = {}) {
-    const { vertices, indices, normals, uvs } = ConeGeometry.build(
-      radius,
-      height,
-      radialSegments,
-      heightSegments,
-      openEnded,
-    );
+	constructor({
+		radius = 1,
+		height = 1,
+		radialSegments = 32,
+		heightSegments = 1,
+		openEnded = false,
+	} = {}) {
+		const { vertices, indices, normals, uvs } = ConeGeometry.build(
+			radius,
+			height,
+			radialSegments,
+			heightSegments,
+			openEnded,
+		);
 
-    super(
-      new Float32Array(vertices),
-      new Uint32Array(indices),
-      new Float32Array(normals),
-      new Float32Array(uvs),
-    );
+		super(
+			new Float32Array(vertices),
+			new Uint32Array(indices),
+			new Float32Array(normals),
+			new Float32Array(uvs),
+		);
 
-    this.radius = radius;
-    this.height = height;
-    this.radialSegments = radialSegments;
-    this.heightSegments = heightSegments;
-    this.openEnded = openEnded;
-  }
+		this.radius = radius;
+		this.height = height;
+		this.radialSegments = radialSegments;
+		this.heightSegments = heightSegments;
+		this.openEnded = openEnded;
+	}
 
-  override invalidate(): void {
-    const { vertices, indices, normals, uvs } = ConeGeometry.build(
-      this.radius,
-      this.height,
-      this.radialSegments,
-      this.heightSegments,
-      this.openEnded,
-    );
+	override invalidate(): void {
+		const { vertices, indices, normals, uvs } = ConeGeometry.build(
+			this.radius,
+			this.height,
+			this.radialSegments,
+			this.heightSegments,
+			this.openEnded,
+		);
 
-    this.setBuffers(
-      new Float32Array(vertices),
-      new Uint32Array(indices),
-      new Float32Array(normals),
-      new Float32Array(uvs),
-    );
+		this.setBuffers(
+			new Float32Array(vertices),
+			new Uint32Array(indices),
+			new Float32Array(normals),
+			new Float32Array(uvs),
+		);
 
-    super.invalidate();
-  }
+		super.invalidate();
+	}
 
-  private static build(
-    radius: number,
-    height: number,
-    radialSegments: number,
-    heightSegments: number,
-    openEnded: boolean,
-  ) {
-    const vertices: number[] = [];
-    const normals: number[] = [];
-    const uvs: number[] = [];
-    const indices: number[] = [];
+	private static build(
+		radius: number,
+		height: number,
+		radialSegments: number,
+		heightSegments: number,
+		openEnded: boolean,
+	) {
+		const vertices: number[] = [];
+		const normals: number[] = [];
+		const uvs: number[] = [];
+		const indices: number[] = [];
 
-    const halfHeight = height / 2;
+		const halfHeight = height / 2;
 
-    // Generate vertices, normals, and UVs for the sides (tip at top to base at bottom)
-    for (let y = 0; y <= heightSegments; y++) {
-      const v = y / heightSegments;
-      // y=0 is tip at +halfHeight, y=heightSegments is base at -halfHeight
-      const currentHeight = halfHeight - v * height;
-      const currentRadius = v * radius;
+		// Generate vertices, normals, and UVs for the sides (tip at top to base at bottom)
+		for (let y = 0; y <= heightSegments; y++) {
+			const v = y / heightSegments;
+			// y=0 is tip at +halfHeight, y=heightSegments is base at -halfHeight
+			const currentHeight = halfHeight - v * height;
+			const currentRadius = v * radius;
 
-      for (let x = 0; x <= radialSegments; x++) {
-        const u = x / radialSegments;
-        const theta = u * Math.PI * 2;
+			for (let x = 0; x <= radialSegments; x++) {
+				const u = x / radialSegments;
+				const theta = u * Math.PI * 2;
 
-        const px = currentRadius * Math.cos(theta);
-        const py = currentHeight;
-        const pz = currentRadius * Math.sin(theta);
+				const px = currentRadius * Math.cos(theta);
+				const py = currentHeight;
+				const pz = currentRadius * Math.sin(theta);
 
-        vertices.push(px, py, pz);
+				vertices.push(px, py, pz);
 
-        // Calculate cone surface normal (points outward and slightly up)
-        const nx = Math.cos(theta);
-        const nz = Math.sin(theta);
-        // Normalize the normal vector (approximate)
-        const ny = radius / height;
-        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-        normals.push(nx / len, ny / len, nz / len);
+				// Calculate cone surface normal (points outward and slightly up)
+				const nx = Math.cos(theta);
+				const nz = Math.sin(theta);
+				// Normalize the normal vector (approximate)
+				const ny = radius / height;
+				const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+				normals.push(nx / len, ny / len, nz / len);
 
-        uvs.push(u, v);
-      }
-    }
+				uvs.push(u, v);
+			}
+		}
 
-    // Generate indices for the sides
-    for (let y = 0; y < heightSegments; y++) {
-      for (let x = 0; x < radialSegments; x++) {
-        const a = y * (radialSegments + 1) + x;
-        const b = a + radialSegments + 1;
-        const c = a + 1;
-        const d = b + 1;
+		// Generate indices for the sides
+		for (let y = 0; y < heightSegments; y++) {
+			for (let x = 0; x < radialSegments; x++) {
+				const a = y * (radialSegments + 1) + x;
+				const b = a + radialSegments + 1;
+				const c = a + 1;
+				const d = b + 1;
 
-        // Winding order for outward-facing normals (CCW when viewed from outside)
-        indices.push(a, c, b);
-        indices.push(b, c, d);
-      }
-    }
+				// Winding order for outward-facing normals (CCW when viewed from outside)
+				indices.push(a, c, b);
+				indices.push(b, c, d);
+			}
+		}
 
-    // Generate base cap if not open-ended
-    if (!openEnded) {
-      const baseCenterIndex = vertices.length / 3;
-      vertices.push(0, -halfHeight, 0);
-      normals.push(0, -1, 0);
-      uvs.push(0.5, 0.5);
+		// Generate base cap if not open-ended
+		if (!openEnded) {
+			const baseCenterIndex = vertices.length / 3;
+			vertices.push(0, -halfHeight, 0);
+			normals.push(0, -1, 0);
+			uvs.push(0.5, 0.5);
 
-      for (let x = 0; x <= radialSegments; x++) {
-        const theta = (x / radialSegments) * Math.PI * 2;
-        const px = radius * Math.cos(theta);
-        const pz = radius * Math.sin(theta);
-        vertices.push(px, -halfHeight, pz);
-        normals.push(0, -1, 0);
-        uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
-      }
+			for (let x = 0; x <= radialSegments; x++) {
+				const theta = (x / radialSegments) * Math.PI * 2;
+				const px = radius * Math.cos(theta);
+				const pz = radius * Math.sin(theta);
+				vertices.push(px, -halfHeight, pz);
+				normals.push(0, -1, 0);
+				uvs.push(Math.cos(theta) * 0.5 + 0.5, Math.sin(theta) * 0.5 + 0.5);
+			}
 
-      for (let x = 0; x < radialSegments; x++) {
-        const a = baseCenterIndex;
-        const b = baseCenterIndex + 1 + x + 1;
-        const c = baseCenterIndex + 1 + x;
-        indices.push(a, c, b);
-      }
-    }
+			for (let x = 0; x < radialSegments; x++) {
+				const a = baseCenterIndex;
+				const b = baseCenterIndex + 1 + x + 1;
+				const c = baseCenterIndex + 1 + x;
+				indices.push(a, c, b);
+			}
+		}
 
-    return { vertices, indices, normals, uvs };
-  }
+		return { vertices, indices, normals, uvs };
+	}
 }

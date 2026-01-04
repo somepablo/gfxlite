@@ -4,139 +4,142 @@ import type { Texture } from "./Texture";
 import type { Environment } from "../environment/Environment";
 
 export interface StandardMaterialOptions {
-    // Base properties
-    baseColor?: Vector3;
-    opacity?: number;
-    metallic?: number;
-    roughness?: number;
+	// Base properties
+	baseColor?: Vector3;
+	opacity?: number;
+	metallic?: number;
+	roughness?: number;
 
-    // Emissive
-    emissive?: Vector3;
-    emissiveFactor?: number;
+	// Emissive
+	emissive?: Vector3;
+	emissiveFactor?: number;
 
-    // Normal/occlusion
-    normalScale?: number;
-    occlusionStrength?: number;
+	// Normal/occlusion
+	normalScale?: number;
+	occlusionStrength?: number;
 
-    // Textures
-    baseColorMap?: Texture;
-    normalMap?: Texture;
-    metallicRoughnessMap?: Texture;
-    emissiveMap?: Texture;
-    aoMap?: Texture;
+	// Textures
+	baseColorMap?: Texture;
+	normalMap?: Texture;
+	metallicRoughnessMap?: Texture;
+	emissiveMap?: Texture;
+	aoMap?: Texture;
 
-    // Transparency
-    transparent?: boolean;
-    blendMode?: BlendMode;
-    alphaCutoff?: number;
-    doubleSided?: boolean;
+	// Transparency
+	transparent?: boolean;
+	blendMode?: BlendMode;
+	alphaCutoff?: number;
+	doubleSided?: boolean;
 
-    // Environment map override
-    envMap?: Environment;
-    envMapIntensity?: number;
+	// Environment map override
+	envMap?: Environment;
+	envMapIntensity?: number;
 }
 
 export class StandardMaterial extends Material {
-    public readonly materialType = MaterialType.Standard;
-    public readonly needsLighting = true;
-    public readonly needsNormals = true;
+	public readonly materialType = MaterialType.Standard;
+	public readonly needsLighting = true;
+	public readonly needsNormals = true;
 
-    // Textures
-    public baseColorMap: Texture | null = null;
-    public normalMap: Texture | null = null;
-    public metallicRoughnessMap: Texture | null = null;
-    public emissiveMap: Texture | null = null;
-    public aoMap: Texture | null = null;
+	// Textures
+	public baseColorMap: Texture | null = null;
+	public normalMap: Texture | null = null;
+	public metallicRoughnessMap: Texture | null = null;
+	public emissiveMap: Texture | null = null;
+	public aoMap: Texture | null = null;
 
-    // Per-material environment map override (uses scene.environment if null)
-    public envMap: Environment | null = null;
-    public envMapIntensity: number = 1.0;
+	// Per-material environment map override (uses scene.environment if null)
+	public envMap: Environment | null = null;
+	public envMapIntensity: number = 1.0;
 
-    constructor(options: StandardMaterialOptions = {}) {
-        super();
+	constructor(options: StandardMaterialOptions = {}) {
+		super();
 
-        // Set defaults
-        this.uniforms.baseColor = options.baseColor ?? new Vector3(1, 1, 1);
-        this.uniforms.metallic = options.metallic ?? 0.0;
-        this.uniforms.roughness = options.roughness ?? 0.5;
-        this.uniforms.emissive = options.emissive ?? new Vector3(0, 0, 0);
-        this.uniforms.emissiveFactor = options.emissiveFactor ?? 1.0;
-        this.uniforms.normalScale = options.normalScale ?? 1.0;
-        this.uniforms.occlusionStrength = options.occlusionStrength ?? 1.0;
+		// Set defaults
+		this.uniforms.baseColor = options.baseColor ?? new Vector3(1, 1, 1);
+		this.uniforms.metallic = options.metallic ?? 0.0;
+		this.uniforms.roughness = options.roughness ?? 0.5;
+		this.uniforms.emissive = options.emissive ?? new Vector3(0, 0, 0);
+		this.uniforms.emissiveFactor = options.emissiveFactor ?? 1.0;
+		this.uniforms.normalScale = options.normalScale ?? 1.0;
+		this.uniforms.occlusionStrength = options.occlusionStrength ?? 1.0;
 
-        // Textures
-        this.baseColorMap = options.baseColorMap ?? null;
-        this.normalMap = options.normalMap ?? null;
-        this.metallicRoughnessMap = options.metallicRoughnessMap ?? null;
-        this.emissiveMap = options.emissiveMap ?? null;
-        this.aoMap = options.aoMap ?? null;
+		// Textures
+		this.baseColorMap = options.baseColorMap ?? null;
+		this.normalMap = options.normalMap ?? null;
+		this.metallicRoughnessMap = options.metallicRoughnessMap ?? null;
+		this.emissiveMap = options.emissiveMap ?? null;
+		this.aoMap = options.aoMap ?? null;
 
-        // Opacity (use base class property)
-        this.opacity = options.opacity ?? 1.0;
+		// Opacity (use base class property)
+		this.opacity = options.opacity ?? 1.0;
 
-        // Transparency
-        // Auto-enable if opacity < 1 or blendMode is AlphaBlend
-        const explicitTransparent = options.transparent ?? false;
-        const implicitTransparent = this.opacity < 1.0 || options.blendMode === BlendMode.AlphaBlend;
-        this.transparent = explicitTransparent || implicitTransparent;
-        this.blendMode = options.blendMode ?? (this.transparent ? BlendMode.AlphaBlend : BlendMode.Opaque);
-        this.alphaCutoff = options.alphaCutoff ?? 0.5;
-        this.doubleSided = options.doubleSided ?? false;
-        this.depthWrite = !this.transparent;
+		// Transparency
+		// Auto-enable if opacity < 1 or blendMode is AlphaBlend
+		const explicitTransparent = options.transparent ?? false;
+		const implicitTransparent =
+			this.opacity < 1.0 || options.blendMode === BlendMode.AlphaBlend;
+		this.transparent = explicitTransparent || implicitTransparent;
+		this.blendMode =
+			options.blendMode ??
+			(this.transparent ? BlendMode.AlphaBlend : BlendMode.Opaque);
+		this.alphaCutoff = options.alphaCutoff ?? 0.5;
+		this.doubleSided = options.doubleSided ?? false;
+		this.depthWrite = !this.transparent;
 
-        // Environment map override
-        this.envMap = options.envMap ?? null;
-        this.envMapIntensity = options.envMapIntensity ?? 1.0;
-    }
+		// Environment map override
+		this.envMap = options.envMap ?? null;
+		this.envMapIntensity = options.envMapIntensity ?? 1.0;
+	}
 
-    hasTextures(): boolean {
-        return !!(
-            this.baseColorMap ||
-            this.normalMap ||
-            this.metallicRoughnessMap ||
-            this.emissiveMap ||
-            this.aoMap
-        );
-    }
+	hasTextures(): boolean {
+		return !!(
+			this.baseColorMap ||
+			this.normalMap ||
+			this.metallicRoughnessMap ||
+			this.emissiveMap ||
+			this.aoMap
+		);
+	}
 
-    getUniformBufferData(): Float32Array {
-        const baseColor = this.uniforms.baseColor as Vector3;
-        const emissive = this.uniforms.emissive as Vector3;
+	getUniformBufferData(): Float32Array {
+		const baseColor = this.uniforms.baseColor as Vector3;
+		const emissive = this.uniforms.emissive as Vector3;
 
-        // Layout (80 bytes = 20 floats):
-        // vec4 baseColor (RGB + alpha)         = 4 floats
-        // vec4 emissive (RGB + emissiveFactor) = 4 floats
-        // vec4 props (metallic, roughness, normalScale, occlusionStrength) = 4 floats
-        // vec4 flags (hasBaseColorMap, hasNormalMap, hasMetallicRoughnessMap, hasEmissiveMap) = 4 floats
-        // vec4 flags2 (hasAOMap, alphaCutoff, blendMode, pad) = 4 floats
+		// Layout (80 bytes = 20 floats):
+		// vec4 baseColor (RGB + alpha)         = 4 floats
+		// vec4 emissive (RGB + emissiveFactor) = 4 floats
+		// vec4 props (metallic, roughness, normalScale, occlusionStrength) = 4 floats
+		// vec4 flags (hasBaseColorMap, hasNormalMap, hasMetallicRoughnessMap, hasEmissiveMap) = 4 floats
+		// vec4 flags2 (hasAOMap, alphaCutoff, blendMode, pad) = 4 floats
 
-        return new Float32Array([
-            // baseColor (vec4)
-            ...baseColor.toArray(),
-            this.opacity,
-            // emissive (vec4)
-            ...emissive.toArray(),
-            this.uniforms.emissiveFactor as number,
-            // props (vec4)
-            this.uniforms.metallic as number,
-            this.uniforms.roughness as number,
-            this.uniforms.normalScale as number,
-            this.uniforms.occlusionStrength as number,
-            // flags (vec4) - texture presence flags
-            this.baseColorMap ? 1.0 : 0.0,
-            this.normalMap ? 1.0 : 0.0,
-            this.metallicRoughnessMap ? 1.0 : 0.0,
-            this.emissiveMap ? 1.0 : 0.0,
-            // flags2 (vec4)
-            this.aoMap ? 1.0 : 0.0,
-            this.alphaCutoff,
-            this.blendMode,
-            0.0, // padding
-        ]);
-    }
+		return new Float32Array([
+			// baseColor (vec4)
+			...baseColor.toArray(),
+			this.opacity,
+			// emissive (vec4)
+			...emissive.toArray(),
+			this.uniforms.emissiveFactor as number,
+			// props (vec4)
+			this.uniforms.metallic as number,
+			this.uniforms.roughness as number,
+			this.uniforms.normalScale as number,
+			this.uniforms.occlusionStrength as number,
+			// flags (vec4) - texture presence flags
+			this.baseColorMap ? 1.0 : 0.0,
+			this.normalMap ? 1.0 : 0.0,
+			this.metallicRoughnessMap ? 1.0 : 0.0,
+			this.emissiveMap ? 1.0 : 0.0,
+			// flags2 (vec4)
+			this.aoMap ? 1.0 : 0.0,
+			this.alphaCutoff,
+			this.blendMode,
+			0.0, // padding
+		]);
+	}
 
-    getVertexShader(): string {
-        return /* wgsl */ `
+	getVertexShader(): string {
+		return /* wgsl */ `
 const MAX_CAMERAS: u32 = 5u;
 
 struct CameraData {
@@ -200,10 +203,10 @@ fn main(
     return output;
 }
         `;
-    }
+	}
 
-    getFragmentShader(): string {
-        return /* wgsl */ `
+	getFragmentShader(): string {
+		return /* wgsl */ `
 const PI: f32 = 3.14159265359;
 
 struct MaterialUniforms {
@@ -498,5 +501,5 @@ fn main(
     return vec4<f32>(gammaCorrected, alpha);
 }
         `;
-    }
+	}
 }

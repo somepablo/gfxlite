@@ -3,66 +3,68 @@ import { Material, MaterialType, BlendMode } from "./Material";
 import type { Texture } from "./Texture";
 
 export interface PhongMaterialOptions {
-    color?: Vector3;
-    specular?: Vector3;
-    shininess?: number;
-    opacity?: number;
-    transparent?: boolean;
-    map?: Texture;
+	color?: Vector3;
+	specular?: Vector3;
+	shininess?: number;
+	opacity?: number;
+	transparent?: boolean;
+	map?: Texture;
 }
 
 export class PhongMaterial extends Material {
-    public readonly materialType = MaterialType.Phong;
-    public readonly needsLighting = true;
-    public readonly needsNormals = true;
+	public readonly materialType = MaterialType.Phong;
+	public readonly needsLighting = true;
+	public readonly needsNormals = true;
 
-    public map: Texture | null = null;
+	public map: Texture | null = null;
 
-    constructor({
-        color = new Vector3(1, 1, 1),
-        specular = new Vector3(1, 1, 1),
-        shininess = 30,
-        opacity = 1.0,
-        transparent,
-        map,
-    }: PhongMaterialOptions = {}) {
-        super();
-        this.uniforms.color = color;
-        this.uniforms.specular = specular;
-        this.uniforms.shininess = shininess;
-        this.map = map ?? null;
-        this.opacity = opacity;
-        // Auto-enable transparency if opacity < 1
-        this.transparent = transparent ?? (opacity < 1.0);
-        if (this.transparent) {
-            this.blendMode = BlendMode.AlphaBlend;
-            this.depthWrite = false;
-        }
-    }
+	constructor({
+		color = new Vector3(1, 1, 1),
+		specular = new Vector3(1, 1, 1),
+		shininess = 30,
+		opacity = 1.0,
+		transparent,
+		map,
+	}: PhongMaterialOptions = {}) {
+		super();
+		this.uniforms.color = color;
+		this.uniforms.specular = specular;
+		this.uniforms.shininess = shininess;
+		this.map = map ?? null;
+		this.opacity = opacity;
+		// Auto-enable transparency if opacity < 1
+		this.transparent = transparent ?? opacity < 1.0;
+		if (this.transparent) {
+			this.blendMode = BlendMode.AlphaBlend;
+			this.depthWrite = false;
+		}
+	}
 
-    hasTextures(): boolean {
-        return !!this.map;
-    }
+	hasTextures(): boolean {
+		return !!this.map;
+	}
 
-    getUniformBufferData(): Float32Array {
-        const color = this.uniforms.color as Vector3;
-        const specular = this.uniforms.specular as Vector3;
-        const shininess = this.uniforms.shininess as number;
+	getUniformBufferData(): Float32Array {
+		const color = this.uniforms.color as Vector3;
+		const specular = this.uniforms.specular as Vector3;
+		const shininess = this.uniforms.shininess as number;
 
-        // Layout: color (vec3) + opacity (f32) + specular (vec3) + shininess (f32) + hasMap (f32) + padding (3 f32) = 48 bytes
-        return new Float32Array([
-            ...color.toArray(),
-            this.opacity,
-            ...specular.toArray(),
-            shininess,
-            this.map ? 1.0 : 0.0,
-            0.0, 0.0, 0.0, // padding
-        ]);
-    }
+		// Layout: color (vec3) + opacity (f32) + specular (vec3) + shininess (f32) + hasMap (f32) + padding (3 f32) = 48 bytes
+		return new Float32Array([
+			...color.toArray(),
+			this.opacity,
+			...specular.toArray(),
+			shininess,
+			this.map ? 1.0 : 0.0,
+			0.0,
+			0.0,
+			0.0, // padding
+		]);
+	}
 
-    getVertexShader(): string {
-        const hasMap = !!this.map;
-        return /* wgsl */ `
+	getVertexShader(): string {
+		const hasMap = !!this.map;
+		return /* wgsl */ `
       const MAX_CAMERAS: u32 = 5u;
 
       struct CameraData {
@@ -121,11 +123,11 @@ export class PhongMaterial extends Material {
           return output;
       }
     `;
-    }
+	}
 
-    getFragmentShader(): string {
-        const hasMap = !!this.map;
-        return /* wgsl */ `
+	getFragmentShader(): string {
+		const hasMap = !!this.map;
+		return /* wgsl */ `
       struct MaterialUniforms {
           color: vec3<f32>,
           opacity: f32,
@@ -157,10 +159,14 @@ export class PhongMaterial extends Material {
       @group(2) @binding(1) var shadowMap: texture_depth_2d_array;
       @group(2) @binding(2) var shadowSampler: sampler_comparison;
 
-      ${hasMap ? `
+      ${
+				hasMap
+					? `
       @group(3) @binding(0) var map: texture_2d<f32>;
       @group(3) @binding(1) var mapSampler: sampler;
-      ` : ""}
+      `
+					: ""
+			}
 
       @fragment
       fn main(
@@ -176,13 +182,17 @@ export class PhongMaterial extends Material {
           // Sample texture if present
           var baseColor = material.color;
           var alpha = material.opacity;
-          ${hasMap ? `
+          ${
+						hasMap
+							? `
           if (material.hasMap > 0.5) {
               let texColor = textureSample(map, mapSampler, vUV);
               baseColor *= texColor.rgb;
               alpha *= texColor.a;
           }
-          ` : ""}
+          `
+							: ""
+					}
 
           // Ambient
           let ambient = lighting.ambientColor * baseColor;
@@ -256,5 +266,5 @@ export class PhongMaterial extends Material {
           return vec4<f32>(ambient + diffuse + specular, alpha);
       }
     `;
-    }
+	}
 }
