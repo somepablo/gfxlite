@@ -5,6 +5,7 @@ export default defineConfig({
   title: "GFXLite",
   description: "Modern 3D Renderer for the Web",
   ignoreDeadLinks: true,
+  cleanUrls: true,
 
   head: [["link", { rel: "icon", type: "image/svg+xml", href: "/gfxlite.svg" }]],
 
@@ -13,6 +14,7 @@ export default defineConfig({
 
     nav: [
       { text: "Guide", link: "/guide/getting-started" },
+      { text: "Playground", link: "/playground" },
       /*{ text: "Examples", link: "/examples/hello-cube" },*/
       /*{ text: "API", link: "/api/" },*/
     ],

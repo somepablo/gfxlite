@@ -222,6 +222,9 @@ export class Renderer {
 					this.sampleCount,
 				);
 				this.mainPhase.setEnvironmentManager(this.environmentManager);
+
+				this.lastClearColor = null;
+				this.lastBackgroundType = null;
 			}
 
 			if (this.depthPrePhase) {

@@ -8,6 +8,7 @@ import TexturesExample from "./components/examples/TexturesExample.vue";
 import OrbitControlsExample from "./components/examples/OrbitControlsExample.vue";
 import SolarSystem from "./components/examples/SolarSystem.vue";
 import EnvironmentExample from "./components/examples/EnvironmentExample.vue";
+import Playground from "./components/playground/Playground.vue";
 import "./custom.css";
 
 export default {
@@ -21,5 +22,6 @@ export default {
     app.component("OrbitControlsExample", OrbitControlsExample);
     app.component("SolarSystem", SolarSystem);
     app.component("EnvironmentExample", EnvironmentExample);
+    app.component("Playground", Playground);
   },
 } satisfies Theme;
