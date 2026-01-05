@@ -97,16 +97,15 @@ export class LambertMaterial extends Material {
           @location(1) normal: vec3<f32>${hasMap ? ",\n          @location(2) uv: vec2<f32>" : ""}
       ) -> VertexOutput {
           let actualIndex = culled.indices[instanceIndex];
-          let instance = instances[actualIndex];
 
-          let worldPos = instance.modelMatrix * vec4<f32>(position, 1.0);
+          let worldPos = instances[actualIndex].modelMatrix * vec4<f32>(position, 1.0);
 
           var output: VertexOutput;
           output.position = cameraUniforms.mainViewProjection * worldPos;
           output.vPosition = worldPos.xyz;
-          output.vNormal = normalize((instance.normalMatrix * vec4<f32>(normal, 0.0)).xyz);
+          output.vNormal = normalize((instances[actualIndex].normalMatrix * vec4<f32>(normal, 0.0)).xyz);
           ${hasMap ? "output.vUV = uv;" : ""}
-          output.vReceiveShadow = instance.flags.x;
+          output.vReceiveShadow = instances[actualIndex].flags.x;
           return output;
       }
     `;

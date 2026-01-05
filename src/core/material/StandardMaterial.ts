@@ -187,19 +187,18 @@ fn main(
     @location(3) tangent: vec4<f32>
 ) -> VertexOutput {
     let actualIndex = culled.indices[instanceIndex];
-    let instance = instances[actualIndex];
 
-    let worldPos = instance.modelMatrix * vec4<f32>(position, 1.0);
+    let worldPos = instances[actualIndex].modelMatrix * vec4<f32>(position, 1.0);
 
     var output: VertexOutput;
     output.position = cameraUniforms.mainViewProjection * worldPos;
     output.vPosition = worldPos.xyz;
-    output.vNormal = normalize((instance.normalMatrix * vec4<f32>(normal, 0.0)).xyz);
+    output.vNormal = normalize((instances[actualIndex].normalMatrix * vec4<f32>(normal, 0.0)).xyz);
     output.vUV = uv;
     output.vCameraPos = cameraUniforms.cameraPosition;
-    output.vReceiveShadow = instance.flags.x;
+    output.vReceiveShadow = instances[actualIndex].flags.x;
     // Transform tangent to world space (using model matrix for direction)
-    output.vTangent = vec4<f32>(normalize((instance.modelMatrix * vec4<f32>(tangent.xyz, 0.0)).xyz), tangent.w);
+    output.vTangent = vec4<f32>(normalize((instances[actualIndex].modelMatrix * vec4<f32>(tangent.xyz, 0.0)).xyz), tangent.w);
     return output;
 }
         `;
