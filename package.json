@@ -1,6 +1,6 @@
 {
   "name": "gfxlite",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A simple WebGPU 3D render library",
   "author": "Pablo Soto",
   "license": "MIT",
