@@ -1,5 +1,5 @@
-import { Geometry } from "../geometry/Geometry";
 import { Vector3 } from "../../math";
+import { Geometry } from "../geometry/Geometry";
 
 export class SphereGeometry extends Geometry {
 	radius: number;

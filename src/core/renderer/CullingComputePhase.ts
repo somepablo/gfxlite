@@ -1,7 +1,7 @@
-import { RenderPhase } from "./RenderPhase";
-import type { BatchManager } from "./BatchManager";
-import type { Scene } from "../scene/Scene";
 import type { Camera } from "../camera/Camera";
+import type { Scene } from "../scene/Scene";
+import type { BatchManager } from "./BatchManager";
+import { RenderPhase } from "./RenderPhase";
 
 const CULLING_WORKGROUP_SIZE = 64;
 const MAX_CAMERAS = 5; // 1 main + 4 shadow lights

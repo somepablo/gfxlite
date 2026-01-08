@@ -1,15 +1,15 @@
-import {
-	type GLTF,
-	type GLTFMesh,
-	type GLTFAccessor,
-	GLTFConstants,
-} from "./GLTFInterfaces";
-import { Object3D } from "../core/object/Object3D";
-import { Mesh } from "../core/object/Mesh";
 import { Geometry } from "../core/geometry/Geometry";
 import { StandardMaterial } from "../core/material/StandardMaterial";
 import { Texture } from "../core/material/Texture";
+import { Mesh } from "../core/object/Mesh";
+import { Object3D } from "../core/object/Object3D";
 import { Vector3 } from "../math";
+import {
+	type GLTF,
+	type GLTFAccessor,
+	GLTFConstants,
+	type GLTFMesh,
+} from "./GLTFInterfaces";
 
 export class GLTFLoader {
 	private json: GLTF | null = null;
@@ -570,7 +570,7 @@ export class GLTFLoader {
 		const root = new Object3D();
 		root.name = "GLTF Root";
 
-		if (sceneDef && sceneDef.nodes) {
+		if (sceneDef?.nodes) {
 			sceneDef.nodes.forEach((nodeIndex) => {
 				const node = this.parseNode(nodeIndex);
 				root.add(node);

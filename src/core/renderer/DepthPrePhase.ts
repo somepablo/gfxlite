@@ -1,7 +1,7 @@
-import { RenderPhase } from "./RenderPhase";
-import type { Scene } from "../scene/Scene";
 import type { Camera } from "../camera/Camera";
+import type { Scene } from "../scene/Scene";
 import type { BatchManager, DrawBatch } from "./BatchManager";
+import { RenderPhase } from "./RenderPhase";
 
 export class DepthPrePhase extends RenderPhase {
 	private batchManager: BatchManager;

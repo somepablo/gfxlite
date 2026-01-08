@@ -1,6 +1,6 @@
-import { Object3D } from "../object/Object3D";
 import { Vector3 } from "../../math";
 import type { Environment } from "../environment/Environment";
+import { Object3D } from "../object/Object3D";
 
 export type SceneBackground =
 	| { type: "none" }

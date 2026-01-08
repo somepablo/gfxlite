@@ -1,9 +1,9 @@
-import type { Mesh } from "../object/Mesh";
+import { Matrix4 } from "../../math";
 import type { Camera } from "../camera/Camera";
 import type { Geometry } from "../geometry/Geometry";
-import type { Material } from "../material/Material";
 import type { DirectionalLight } from "../light/DirectionalLight";
-import { Matrix4 } from "../../math";
+import type { Material } from "../material/Material";
+import type { Mesh } from "../object/Mesh";
 
 // Constants
 // Layout: Model (16) + Normal (16) + Flags (4) = 36 floats per instance

@@ -1,20 +1,20 @@
-import { RenderPhase } from "./RenderPhase";
-import type { Scene } from "../scene/Scene";
+import { Vector3 } from "../../math";
 import type { Camera } from "../camera/Camera";
-import { Mesh } from "../object/Mesh";
+import type { Environment } from "../environment/Environment";
+import type { EnvironmentManager } from "../environment/EnvironmentManager";
 import type { BasicMaterial } from "../material/BasicMaterial";
 import type { LambertMaterial } from "../material/LambertMaterial";
+import type { Material } from "../material/Material";
+import { MaterialType } from "../material/Material";
 import type { PhongMaterial } from "../material/PhongMaterial";
 import type { StandardMaterial } from "../material/StandardMaterial";
-import { MaterialType } from "../material/Material";
-import type { LightingManager } from "./LightingManager";
-import type { BatchManager, DrawBatch } from "./BatchManager";
 import type { TextureManager } from "../material/TextureManager";
-import type { EnvironmentManager } from "../environment/EnvironmentManager";
-import type { Environment } from "../environment/Environment";
-import type { Material } from "../material/Material";
+import { Mesh } from "../object/Mesh";
+import type { Scene } from "../scene/Scene";
+import type { BatchManager, DrawBatch } from "./BatchManager";
+import type { LightingManager } from "./LightingManager";
 import { Program } from "./Program";
-import { Vector3 } from "../../math";
+import { RenderPhase } from "./RenderPhase";
 
 interface IndirectPipelineData {
 	program: Program;
@@ -619,7 +619,7 @@ export class MainRenderPhase extends RenderPhase {
 
 				// Check if this material has its own envMap by looking at the cached key
 				const parts = envKey.split("_");
-				const cachedEnvId = parseInt(parts[1]);
+				const cachedEnvId = parseInt(parts[1], 10);
 				const sceneEnvId = this.sceneEnvironmentId;
 
 				if (cachedEnvId === sceneEnvId) {

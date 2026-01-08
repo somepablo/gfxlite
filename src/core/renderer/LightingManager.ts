@@ -1,7 +1,7 @@
-import type { Scene } from "../scene/Scene";
-import { Light } from "../light/Light";
+import { Matrix4, Vector3 } from "../../math";
 import { DirectionalLight } from "../light/DirectionalLight";
-import { Vector3, Matrix4 } from "../../math";
+import { Light } from "../light/Light";
+import type { Scene } from "../scene/Scene";
 
 const MAX_LIGHTS = 16;
 const MAX_SHADOW_LIGHTS = 4;
@@ -24,6 +24,9 @@ export class LightingManager {
 
 	// Reusable temp objects
 	private _tempMatrix = new Matrix4();
+
+	// Map to store shadow layer index per light
+	private shadowLayerIndices = new WeakMap<Light, number>();
 
 	constructor(
 		device: GPUDevice,
@@ -120,9 +123,8 @@ export class LightingManager {
 					shadowLight = light;
 					shadowLayerIndex = shadowLightCount;
 					shadowLightCount++;
-
-					(light as any)._shadowLayerIndex = shadowLayerIndex;
 				}
+				this.shadowLayerIndices.set(light, shadowLayerIndex);
 			}
 			lightingData.set(direction.toArray(), baseOffset);
 			lightingData[baseOffset + 3] = light.intensity;
@@ -135,7 +137,7 @@ export class LightingManager {
 				shadowLayerIndex;
 
 			// Shadow ViewProj Matrix (offset 8 in struct)
-			if (shadowLight && shadowLight.shadow.camera) {
+			if (shadowLight?.shadow.camera) {
 				this._tempMatrix.multiplyMatrices(
 					shadowLight.shadow.camera.projectionMatrix,
 					shadowLight.shadow.camera.viewMatrix,
@@ -172,6 +174,10 @@ export class LightingManager {
 		this.shadowMapArrayView = this.shadowMapArray.createView({
 			dimension: "2d-array",
 		});
+	}
+
+	getShadowLayerIndex(light: Light): number {
+		return this.shadowLayerIndices.get(light) ?? -1;
 	}
 
 	// Getters for external access (used by MainRenderPhase)

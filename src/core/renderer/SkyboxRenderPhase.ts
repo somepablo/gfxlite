@@ -1,8 +1,8 @@
-import { RenderPhase } from "./RenderPhase";
-import type { Scene } from "../scene/Scene";
 import type { Camera } from "../camera/Camera";
-import type { EnvironmentManager } from "../environment/EnvironmentManager";
 import type { Environment } from "../environment/Environment";
+import type { EnvironmentManager } from "../environment/EnvironmentManager";
+import type { Scene } from "../scene/Scene";
+import { RenderPhase } from "./RenderPhase";
 
 export class SkyboxRenderPhase extends RenderPhase {
 	private environmentManager: EnvironmentManager;

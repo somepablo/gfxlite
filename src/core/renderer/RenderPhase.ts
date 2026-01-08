@@ -1,5 +1,5 @@
-import type { Scene } from "../scene/Scene";
 import type { Camera } from "../camera/Camera";
+import type { Scene } from "../scene/Scene";
 
 export abstract class RenderPhase {
 	protected device: GPUDevice;

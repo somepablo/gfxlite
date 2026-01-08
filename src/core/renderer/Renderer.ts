@@ -1,15 +1,15 @@
 import type { Camera } from "../camera/Camera";
+import { EnvironmentManager } from "../environment/EnvironmentManager";
+import { DirectionalLight } from "../light/DirectionalLight";
+import { TextureManager } from "../material/TextureManager";
 import type { Scene } from "../scene/Scene";
+import { BatchManager } from "./BatchManager";
+import { CullingComputePhase } from "./CullingComputePhase";
+import { DepthPrePhase } from "./DepthPrePhase";
 import { LightingManager } from "./LightingManager";
 import { MainRenderPhase } from "./MainRenderPhase";
 import { ShadowRenderPhase } from "./ShadowRenderPhase";
-import { DepthPrePhase } from "./DepthPrePhase";
 import { SkyboxRenderPhase } from "./SkyboxRenderPhase";
-import { CullingComputePhase } from "./CullingComputePhase";
-import { BatchManager } from "./BatchManager";
-import { DirectionalLight } from "../light/DirectionalLight";
-import { TextureManager } from "../material/TextureManager";
-import { EnvironmentManager } from "../environment/EnvironmentManager";
 
 export const ShadowType = {
 	Basic: 0,

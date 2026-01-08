@@ -1,12 +1,12 @@
-import { RenderPhase } from "./RenderPhase";
-import type { LightingManager } from "./LightingManager";
-import type { Scene } from "../scene/Scene";
-import type { Camera } from "../camera/Camera";
-import { Mesh } from "../object/Mesh";
-import type { Light } from "../light/Light";
-import { DirectionalLight } from "../light/DirectionalLight";
 import { Box3 } from "../../math";
+import type { Camera } from "../camera/Camera";
+import { DirectionalLight } from "../light/DirectionalLight";
+import type { Light } from "../light/Light";
+import { Mesh } from "../object/Mesh";
+import type { Scene } from "../scene/Scene";
 import type { BatchManager, DrawBatch } from "./BatchManager";
+import type { LightingManager } from "./LightingManager";
+import { RenderPhase } from "./RenderPhase";
 
 export class ShadowRenderPhase extends RenderPhase {
 	private lightingManager: LightingManager;
@@ -259,7 +259,7 @@ export class ShadowRenderPhase extends RenderPhase {
 		// Render shadow map for each light
 		for (let lightIndex = 0; lightIndex < this.lights.length; lightIndex++) {
 			const light = this.lights[lightIndex];
-			const layerIndex = (light as any)._shadowLayerIndex;
+			const layerIndex = this.lightingManager.getShadowLayerIndex(light);
 
 			if (layerIndex === undefined || layerIndex < 0) continue;
 

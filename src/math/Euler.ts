@@ -1,6 +1,6 @@
-import { clamp } from "./Utils";
 import { Matrix3 } from "./Matrix3";
 import type { Quaternion } from "./Quaternion";
+import { clamp } from "./Utils";
 
 export class Euler {
 	x: number;

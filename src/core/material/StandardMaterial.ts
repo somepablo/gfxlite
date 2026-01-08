@@ -1,7 +1,7 @@
 import { Vector3 } from "../../math";
-import { Material, MaterialType, BlendMode } from "./Material";
-import type { Texture } from "./Texture";
 import type { Environment } from "../environment/Environment";
+import { BlendMode, Material, MaterialType } from "./Material";
+import type { Texture } from "./Texture";
 
 export interface StandardMaterialOptions {
 	// Base properties

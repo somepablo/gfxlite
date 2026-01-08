@@ -1,6 +1,6 @@
-import { Vector3 } from "./Vector3";
 import { Matrix3 } from "./Matrix3";
 import { Quaternion } from "./Quaternion";
+import { Vector3 } from "./Vector3";
 
 export class Matrix4 {
 	elements: number[];

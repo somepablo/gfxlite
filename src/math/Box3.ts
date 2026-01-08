@@ -1,5 +1,5 @@
-import { Vector3 } from "./Vector3";
 import type { Matrix4 } from "./Matrix4";
+import { Vector3 } from "./Vector3";
 
 export class Box3 {
 	min: Vector3;
@@ -81,12 +81,6 @@ export class Box3 {
 	expandByScalar(scalar: number): this {
 		this.min.addScalar(-scalar);
 		this.max.addScalar(scalar);
-		return this;
-	}
-
-	expandByObject(_object: any): this {
-		// Placeholder for recursive expansion if needed,
-		// but typically we compute geometry bbox and transform it.
 		return this;
 	}
 

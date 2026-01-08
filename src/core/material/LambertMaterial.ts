@@ -1,5 +1,5 @@
 import { Vector3 } from "../../math";
-import { Material, MaterialType, BlendMode } from "./Material";
+import { BlendMode, Material, MaterialType } from "./Material";
 import type { Texture } from "./Texture";
 
 export interface LambertMaterialOptions {

@@ -1,5 +1,5 @@
-import { Object3D } from "../object/Object3D";
 import { Vector3 } from "../../math";
+import { Object3D } from "../object/Object3D";
 
 export class Light extends Object3D {
 	public color: Vector3;

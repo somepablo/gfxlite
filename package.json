@@ -28,8 +28,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "format": "biome format --write",
-    "lint": "biome lint --write",
+    "lint:fix": "biome check --write",
+    "validate": "biome ci",
     "preview": "vite preview",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",

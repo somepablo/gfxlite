@@ -1,6 +1,6 @@
-import { Light } from "./Light";
 import { Vector3 } from "../../math";
 import { OrthographicCamera } from "../camera/OrthographicCamera";
+import { Light } from "./Light";
 
 export class DirectionalLight extends Light {
 	constructor(color: Vector3 = new Vector3(1, 1, 1), intensity: number = 1) {
